@@ -1,0 +1,14 @@
+# Configuración de gitleaks (CG-32): reglas por defecto + regla propia para claves de Groq.
+# Las reglas por defecto solo detectan una clave gsk_ si la variable se llama "api_key" o similar
+# (regla generic-api-key); esta regla la detecta en cualquier contexto.
+title = "codeguard-ai"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "groq-api-key"
+description = "Clave de la API de Groq"
+regex = '''\b(gsk_[A-Za-z0-9]{52})\b'''
+secretGroup = 1
+keywords = ["gsk_"]
