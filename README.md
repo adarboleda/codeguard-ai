@@ -1,5 +1,7 @@
 # CodeGuard AI
 
+[![CI](https://github.com/adarboleda/codeguard-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/adarboleda/codeguard-ai/actions/workflows/ci.yml)
+
 Herramienta CLI en Python que genera pruebas `pytest` desde contratos YAML, las filtra, las ejecuta con cobertura de líneas y ramas, las enfrenta a mutantes controlados y emite alertas estáticas para `eval` y `shell=True`. Todo se exporta a JSON, CSV y HTML y se reproduce con un solo comando.
 
 > **Estado:** Sprint 0, infraestructura. La instalación, los comandos y la reproducción paso a paso se documentan en CG-26.
@@ -15,6 +17,19 @@ samples/security/   ejemplos seguros e inseguros para las reglas estáticas
 tests/              pruebas del propio CodeGuard
 docs/               plan, informe y presentación
 ```
+
+## Entorno de desarrollo
+
+Requisitos: Python 3.12 y [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync --all-extras          # crea .venv con las versiones exactas de uv.lock
+uv run pre-commit install     # activa los hooks (ruff, mypy, gitleaks) en cada commit
+uv run pre-commit run --all-files
+uv run pytest
+```
+
+Antes de cada PR: `uv run ruff check .`, `uv run ruff format .`, `uv run mypy` y `uv run pytest` deben pasar; la CI repite lo mismo en Ubuntu y Windows y además corre gitleaks sobre el historial.
 
 ## Cómo trabajamos
 
