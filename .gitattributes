@@ -1,0 +1,5 @@
+# Finales de línea LF en el repo: evita diffs falsos entre Windows y la CI en Ubuntu
+* text=auto eol=lf
+*.docx binary
+*.pdf binary
+*.png binary
