@@ -232,3 +232,5 @@ __marimo__/
 out/
 # Entorno virtual
 .venv/
+# Archivos de bloqueo de Office (~$archivo.xlsx)
+~$*
