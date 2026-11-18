@@ -20,7 +20,7 @@ docs/               plan, informe y presentación
 
 - GitHub Flow: `main` protegida; una rama por historia (`feat/CG-09-validator-syntax`), PR con 1 aprobación y squash merge.
 - Commits con [Conventional Commits](https://www.conventionalcommits.org/): `feat(validator): reject tautological asserts (CG-11)`.
-- Nunca se suben `.env`, claves ni `out/`. Copia `.env.example` a `.env` para usar la extensión opcional con Grok.
+- Nunca se suben `.env`, claves ni `out/`. Copia `.env.example` a `.env` para usar la extensión opcional con Groq.
 
 Plan completo: [docs/plan-de-proyecto.md](docs/plan-de-proyecto.md).
 
