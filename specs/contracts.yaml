@@ -1,0 +1,332 @@
+# specs/contracts.yaml — CG-04
+# Contratos y tabla de casos del paquete bajo estudio reference/sciref (6 funciones, 3 módulos).
+#
+# Reglas:
+#   - Cada valor esperado se calculó A MANO (ver campo `oracle`), sin ejecutar sciref.
+#     Así el oráculo no es circular (plan §2.3).
+#   - Cada función tiene casos `normal`, `frontera` e `invalido`.
+#   - Un caso espera un valor (`expected`) o una excepción (`raises`), nunca ambos.
+#   - Los floats se comparan con pytest.approx(rel=1e-9).
+#   - `witness_for` indica qué mutante del catálogo (plan §5.2) detecta el caso.
+#
+# Estado: pendiente de revisión por Abner (DoD: "esperados revisados por otra persona").
+
+version: 1
+package: sciref
+responsable: Marcelo
+revisor: Abner
+fecha: 2026-11-18
+estado_revision: pendiente
+
+functions:
+
+  # ---------------------------------------------------------------- numeric
+  - name: weighted_mean
+    module: numeric
+    signature: "weighted_mean(values, weights)"
+    contract: "Σ(w·v) / Σw"
+    cases:
+      - id: WM-01
+        kind: normal
+        inputs: {values: [1, 2, 3], weights: [1, 1, 1]}
+        expected: 2.0
+        oracle: "(1·1 + 2·1 + 3·1) / (1 + 1 + 1) = 6 / 3 = 2"
+
+      - id: WM-02
+        kind: normal
+        inputs: {values: [1, 3], weights: [1, 3]}
+        expected: 2.5
+        oracle: "(1·1 + 3·3) / (1 + 3) = 10 / 4 = 2.5"
+        witness_for: [M01]
+
+      - id: WM-03
+        kind: frontera
+        inputs: {values: [4, 10], weights: [0, 2]}
+        expected: 10.0
+        oracle: "(4·0 + 10·2) / (0 + 2) = 20 / 2 = 10 (peso 0 válido si Σw > 0)"
+
+      - id: WM-04
+        kind: frontera
+        inputs: {values: [7], weights: [0.5]}
+        expected: 7.0
+        oracle: "(7·0.5) / 0.5 = 3.5 / 0.5 = 7 (un solo elemento)"
+
+      - id: WM-05
+        kind: invalido
+        inputs: {values: [1, 2], weights: [1]}
+        raises: ValueError
+        oracle: "Longitudes distintas (2 ≠ 1) → ValueError"
+
+      - id: WM-06
+        kind: invalido
+        inputs: {values: [], weights: []}
+        raises: ValueError
+        oracle: "Lista vacía → ValueError"
+
+      - id: WM-07
+        kind: invalido
+        inputs: {values: [1, 2], weights: [-1, 2]}
+        raises: ValueError
+        oracle: "Peso negativo (−1) → ValueError"
+        witness_for: [M02]
+
+      - id: WM-08
+        kind: invalido
+        inputs: {values: [1, 2], weights: [0, 0]}
+        raises: ValueError
+        oracle: "Σw = 0 → ValueError (división entre cero evitada)"
+
+  - name: clamp
+    module: numeric
+    signature: "clamp(x, lo, hi)"
+    contract: "lo si x < lo; hi si x > hi; si no, x"
+    cases:
+      - id: CL-01
+        kind: normal
+        inputs: {x: 5, lo: 0, hi: 10}
+        expected: 5
+        oracle: "0 ≤ 5 ≤ 10 → devuelve x = 5"
+
+      - id: CL-02
+        kind: normal
+        inputs: {x: -3, lo: 0, hi: 10}
+        expected: 0
+        oracle: "−3 < 0 → devuelve lo = 0"
+
+      - id: CL-03
+        kind: normal
+        inputs: {x: 15, lo: 0, hi: 10}
+        expected: 10
+        oracle: "15 > 10 → devuelve hi = 10"
+        witness_for: [M04]
+
+      - id: CL-04
+        kind: frontera
+        inputs: {x: 0, lo: 0, hi: 10}
+        expected: 0
+        oracle: "x == lo → devuelve lo = 0 (= x; el mutante M03 es equivalente)"
+        witness_for: [M03]
+
+      - id: CL-05
+        kind: frontera
+        inputs: {x: 10, lo: 0, hi: 10}
+        expected: 10
+        oracle: "x == hi → devuelve hi = 10 (= x)"
+
+      - id: CL-06
+        kind: frontera
+        inputs: {x: 7, lo: 3, hi: 3}
+        expected: 3
+        oracle: "lo == hi = 3 es válido (no es lo > hi); 7 > 3 → devuelve hi = 3"
+
+      - id: CL-07
+        kind: invalido
+        inputs: {x: 5, lo: 10, hi: 0}
+        raises: ValueError
+        oracle: "lo (10) > hi (0) → ValueError"
+        witness_for: [M05]
+
+  - name: normalize_minmax
+    module: numeric
+    signature: "normalize_minmax(values)"
+    contract: "(v − min) / (max − min), en [0, 1]; todos iguales → 0.0"
+    cases:
+      - id: NM-01
+        kind: normal
+        inputs: {values: [2, 4]}
+        expected: [0.0, 1.0]
+        oracle: "min = 2, max = 4, rango = 2 → [(2−2)/2, (4−2)/2] = [0, 1]"
+        witness_for: [M07]
+
+      - id: NM-02
+        kind: normal
+        inputs: {values: [1, 2, 3, 4, 5]}
+        expected: [0.0, 0.25, 0.5, 0.75, 1.0]
+        oracle: "min = 1, max = 5, rango = 4 → [0/4, 1/4, 2/4, 3/4, 4/4]"
+
+      - id: NM-03
+        kind: normal
+        inputs: {values: [-1, 0, 3]}
+        expected: [0.0, 0.25, 1.0]
+        oracle: "min = −1, max = 3, rango = 4 → [0/4, 1/4, 4/4] (valores negativos)"
+
+      - id: NM-04
+        kind: frontera
+        inputs: {values: [5, 5, 5]}
+        expected: [0.0, 0.0, 0.0]
+        oracle: "max = min = 5 → rama 'todos iguales' → [0.0, 0.0, 0.0] (sin división entre cero)"
+        witness_for: [M06]
+
+      - id: NM-05
+        kind: frontera
+        inputs: {values: [42]}
+        expected: [0.0]
+        oracle: "Un solo elemento: max = min → [0.0]"
+
+      - id: NM-06
+        kind: invalido
+        inputs: {values: []}
+        raises: ValueError
+        oracle: "Lista vacía → ValueError"
+
+  # ---------------------------------------------------------------- signals
+  - name: moving_average
+    module: signals
+    signature: "moving_average(values, window)"
+    contract: "media de cada ventana de tamaño window; longitud n − window + 1"
+    cases:
+      - id: MA-01
+        kind: normal
+        inputs: {values: [1, 2, 3], window: 2}
+        expected: [1.5, 2.5]
+        oracle: "Ventanas: (1,2)→1.5 ; (2,3)→2.5. Longitud 3 − 2 + 1 = 2"
+        witness_for: [M08]
+
+      - id: MA-02
+        kind: normal
+        inputs: {values: [1, 2, 3, 4, 5], window: 3}
+        expected: [2.0, 3.0, 4.0]
+        oracle: "(1+2+3)/3 = 2 ; (2+3+4)/3 = 3 ; (3+4+5)/3 = 4. Longitud 5 − 3 + 1 = 3"
+
+      - id: MA-03
+        kind: frontera
+        inputs: {values: [1, 2, 3], window: 3}
+        expected: [2.0]
+        oracle: "window == n = 3 → una sola ventana: (1+2+3)/3 = 2"
+        witness_for: [M09]
+
+      - id: MA-04
+        kind: frontera
+        inputs: {values: [4, 8, 6], window: 1}
+        expected: [4.0, 8.0, 6.0]
+        oracle: "window == 1 → cada valor es su propia media; longitud 3"
+
+      - id: MA-05
+        kind: invalido
+        inputs: {values: [1, 2, 3], window: 0}
+        raises: ValueError
+        oracle: "window < 1 → ValueError"
+
+      - id: MA-06
+        kind: invalido
+        inputs: {values: [1, 2, 3], window: 4}
+        raises: ValueError
+        oracle: "window (4) > n (3) → ValueError"
+
+      - id: MA-07
+        kind: invalido
+        inputs: {values: [], window: 1}
+        raises: ValueError
+        oracle: "window (1) > n (0) → ValueError"
+
+  - name: threshold_crossings
+    module: signals
+    signature: "threshold_crossings(values, threshold)"
+    contract: "índices i tales que values[i−1] < threshold ≤ values[i]"
+    notes: "No define ValueError: las entradas de longitud 0 o 1 devuelven []."
+    cases:
+      - id: TC-01
+        kind: normal
+        inputs: {values: [0, 5, 2, 7], threshold: 3}
+        expected: [1, 3]
+        oracle: "i=1: 0 < 3 ≤ 5 ✓ ; i=2: 5 < 3 ✗ ; i=3: 2 < 3 ≤ 7 ✓ → [1, 3]"
+
+      - id: TC-02
+        kind: normal
+        inputs: {values: [1, 2, 3], threshold: 10}
+        expected: []
+        oracle: "Ningún valor alcanza 10 → sin cruces → []"
+
+      - id: TC-03
+        kind: frontera
+        inputs: {values: [0, 5], threshold: 5}
+        expected: [1]
+        oracle: "i=1: 0 < 5 ≤ 5 ✓ (valor igual al umbral cuenta como cruce) → [1]"
+        witness_for: [M10]
+
+      - id: TC-04
+        kind: frontera
+        inputs: {values: [5, 0], threshold: 3}
+        expected: []
+        oracle: "i=1: 5 < 3 ✗ (solo hay descenso, no cruce ascendente) → []. Sin comparar con v[−1]"
+        witness_for: [M11]
+
+      - id: TC-05
+        kind: invalido
+        inputs: {values: [], threshold: 3}
+        expected: []
+        oracle: "Serie vacía: no hay pares (i−1, i) → []"
+
+      - id: TC-06
+        kind: invalido
+        inputs: {values: [7], threshold: 3}
+        expected: []
+        oracle: "Serie de 1 elemento: no hay i−1 → []"
+
+  # ---------------------------------------------------------------- validation
+  - name: validate_range
+    module: validation
+    signature: "validate_range(value, lo, hi, inclusive=True)"
+    contract: "True si lo ≤ value ≤ hi (inclusive) o lo < value < hi (exclusivo)"
+    cases:
+      - id: VR-01
+        kind: normal
+        inputs: {value: 5, lo: 0, hi: 10, inclusive: true}
+        expected: true
+        oracle: "0 ≤ 5 ≤ 10 → True"
+
+      - id: VR-02
+        kind: normal
+        inputs: {value: 15, lo: 0, hi: 10, inclusive: true}
+        expected: false
+        oracle: "15 > 10 → False"
+
+      - id: VR-03
+        kind: normal
+        inputs: {value: 5, lo: 0, hi: 10, inclusive: false}
+        expected: true
+        oracle: "0 < 5 < 10 → True"
+
+      - id: VR-04
+        kind: frontera
+        inputs: {value: 10, lo: 0, hi: 10, inclusive: true}
+        expected: true
+        oracle: "value == hi en modo cerrado → True"
+        witness_for: [M12]
+
+      - id: VR-05
+        kind: frontera
+        inputs: {value: 0, lo: 0, hi: 10, inclusive: true}
+        expected: true
+        oracle: "value == lo en modo cerrado → True"
+
+      - id: VR-06
+        kind: frontera
+        inputs: {value: 10, lo: 0, hi: 10, inclusive: false}
+        expected: false
+        oracle: "value == hi en modo abierto → False"
+
+      - id: VR-07
+        kind: frontera
+        inputs: {value: 0, lo: 0, hi: 10, inclusive: false}
+        expected: false
+        oracle: "value == lo en modo abierto → False"
+
+      - id: VR-08
+        kind: invalido
+        inputs: {value: .nan, lo: 0, hi: 1, inclusive: true}
+        raises: ValueError
+        oracle: "NaN → ValueError (no se compara NaN)"
+        witness_for: [M13]
+
+      - id: VR-09
+        kind: invalido
+        inputs: {value: "5", lo: 0, hi: 10, inclusive: true}
+        raises: TypeError
+        oracle: "Cadena '5' no es numérica → TypeError"
+
+      - id: VR-10
+        kind: invalido
+        inputs: {value: true, lo: 0, hi: 10, inclusive: true}
+        raises: TypeError
+        oracle: "bool no se acepta como número aunque sea subclase de int → TypeError"
