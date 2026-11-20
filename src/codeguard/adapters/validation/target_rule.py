@@ -10,10 +10,10 @@ import inspect
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
+from codeguard.adapters.validation.ast_names import NameResolver
 from codeguard.domain import FunctionContract, RejectionReason, TestProposal, ValidationVerdict
 
 _ANY_VALUE = object()  # placeholder argument/default: bind() only checks names and arity
-_PYTEST_RAISES = "pytest.raises"
 _P = inspect.Parameter
 
 
@@ -106,82 +106,12 @@ def find_target_calls(tree: ast.Module, target: str) -> Iterator[_TargetCall]:
 
     Also recognises the callable form ``pytest.raises(Error, target, *args)``.
     """
-    accepted = _accepted_names(target)
-    aliases = _import_aliases(tree)
+    resolver = NameResolver(tree, target)
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        called = _qualified_name(node.func, aliases)
-        if called in accepted:
-            yield _TargetCall(node.lineno, tuple(node.args), tuple(node.keywords))
-        elif _is_raises_with_target(node, called, aliases, accepted):
-            yield _TargetCall(node.lineno, tuple(node.args[2:]), tuple(node.keywords))
-
-
-def _is_raises_with_target(
-    node: ast.Call, called: str | None, aliases: dict[str, str], accepted: set[str]
-) -> bool:
-    """True for ``pytest.raises(Error, target, ...)`` (the callable form)."""
-    return (
-        called == _PYTEST_RAISES
-        and len(node.args) >= 2
-        and _qualified_name(node.args[1], aliases) in accepted
-    )
-
-
-def _accepted_names(target: str) -> set[str]:
-    """``sciref.numeric.f`` is also reachable as ``sciref.f`` (package re-export).
-
-    Accepting parent packages is safe: the import rule (earlier in the chain) has
-    already proved that the proposal's imports resolve.
-    """
-    module, _, function = target.rpartition(".")
-    parts = module.split(".")
-    return {".".join([*parts[:size], function]) for size in range(1, len(parts) + 1)}
-
-
-def _import_aliases(tree: ast.Module) -> dict[str, str]:
-    """Map each imported local name to its fully qualified name."""
-    aliases: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.asname:
-                    aliases[alias.asname] = alias.name
-                else:
-                    head = alias.name.split(".")[0]
-                    aliases[head] = head
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            for alias in node.names:
-                if alias.name != "*":
-                    aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
-    for name in _rebound_names(tree):
-        aliases.pop(name, None)  # e.g. a local stub "def weighted_mean(...)" hides the import
-    return aliases
-
-
-def _rebound_names(tree: ast.Module) -> set[str]:
-    """Names assigned or defined in the proposal (they shadow imported names)."""
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            names.add(node.name)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            names.add(node.id)
-        elif isinstance(node, ast.arg):
-            names.add(node.arg)
-    return names
-
-
-def _qualified_name(expr: ast.expr, aliases: dict[str, str]) -> str | None:
-    """Resolve ``wm`` or ``num.weighted_mean`` to ``sciref.numeric.weighted_mean``."""
-    parts: list[str] = []
-    while isinstance(expr, ast.Attribute):
-        parts.append(expr.attr)
-        expr = expr.value
-    if not isinstance(expr, ast.Name) or expr.id not in aliases:
-        return None
-    return ".".join([aliases[expr.id], *reversed(parts)])
+        if isinstance(node, ast.Call):
+            arguments = resolver.target_call_arguments(node)
+            if arguments is not None:
+                yield _TargetCall(node.lineno, *arguments)
 
 
 def _bind_error(signature: inspect.Signature, call: _TargetCall) -> str | None:
