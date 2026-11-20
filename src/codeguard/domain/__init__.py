@@ -1,5 +1,6 @@
 """Domain layer exports for CodeGuard AI."""
 
+from .errors import CodeGuardError, SpecError
 from .models import (
     CaseKind,
     ContractCase,
@@ -18,6 +19,7 @@ from .models import (
 
 __all__ = [
     "CaseKind",
+    "CodeGuardError",
     "ContractCase",
     "Finding",
     "FunctionContract",
@@ -28,6 +30,7 @@ __all__ = [
     "RejectionReason",
     "RunMetrics",
     "Severity",
+    "SpecError",
     "TestProposal",
     "ValidationVerdict",
 ]
