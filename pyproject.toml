@@ -22,6 +22,9 @@ dependencies = [
 # Extensión opcional con Groq (CG-31): apagada por defecto, el núcleo no la necesita.
 llm = ["openai>=1.40", "python-dotenv>=1"]
 
+[project.scripts]
+codeguard = "codeguard.cli.main:app"
+
 [dependency-groups]
 dev = ["ruff>=0.8", "mypy>=1.13", "pre-commit>=4", "types-pyyaml"]
 
