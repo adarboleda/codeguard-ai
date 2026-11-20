@@ -24,18 +24,21 @@ ProposalFactory = Callable[..., TestProposal]
 
 @pytest.fixture
 def make_proposal() -> ProposalFactory:
-    """Build a TestProposal for weighted_mean with the given code."""
+    """Build a TestProposal (weighted_mean by default) with the given code."""
 
     def _make(
         code: str = VALID_PROPOSAL_CODE,
         proposal_id: str = "P-WM-02",
         file_name: str = "test_weighted_mean_wm_02.py",
+        target_module: str = "sciref.numeric",
+        target_function: str = "weighted_mean",
+        source: ProposalSourceKind = ProposalSourceKind.TEMPLATE,
     ) -> TestProposal:
         return TestProposal(
             proposal_id=proposal_id,
-            target_module="sciref.numeric",
-            target_function="weighted_mean",
-            source=ProposalSourceKind.TEMPLATE,
+            target_module=target_module,
+            target_function=target_function,
+            source=source,
             code=code,
             case_ids=("WM-02",),
             file_name=file_name,
