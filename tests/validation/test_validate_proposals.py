@@ -7,7 +7,7 @@ import pytest
 from conftest import REFERENCE_DIR, ProposalFactory
 
 from codeguard.adapters.ledger import LEDGER_FILE_NAME, JsonlLedger
-from codeguard.adapters.validation import ImportRule, SyntaxRule, TargetRule
+from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
 from codeguard.application.validate_proposals import ValidateProposals
 from codeguard.application.validation_chain import ValidationChain
 from codeguard.domain import FunctionContract, ProposalSourceKind, RejectionReason
@@ -29,7 +29,12 @@ def _in_test(imports: str, call: str) -> str:
 @pytest.fixture
 def use_case() -> ValidateProposals:
     chain = ValidationChain(
-        [SyntaxRule(), ImportRule(search_paths=[REFERENCE_DIR]), TargetRule([WEIGHTED_MEAN])]
+        [
+            SyntaxRule(),
+            ImportRule(search_paths=[REFERENCE_DIR]),
+            TargetRule([WEIGHTED_MEAN]),
+            AssertionRule(),
+        ]
     )
     return ValidateProposals(chain, JsonlLedger())
 
@@ -49,6 +54,12 @@ def test_ledger_keeps_every_proposal_with_its_reason(
             "bad-args",
             source=ProposalSourceKind.GROQ,
         ),
+        make_proposal(
+            "from sciref.numeric import weighted_mean\n\n\n"
+            "def test_seed() -> None:\n    weighted_mean([1], [1])\n    assert True\n",
+            "seed-tautological",
+            source=ProposalSourceKind.DEFECTIVE_SEED,
+        ),
     ]
 
     report = use_case.execute(proposals, tmp_path / "run-001")
@@ -61,11 +72,12 @@ def test_ledger_keeps_every_proposal_with_its_reason(
         RejectionReason.IMPORT_ERROR,
         RejectionReason.TARGET_NOT_CALLED,
         RejectionReason.INVALID_SIGNATURE,
+        RejectionReason.TAUTOLOGICAL_ASSERTION,
     ]
     assert report.entries[0].status is ProposalStatus.VALID
-    assert (report.summary.total, report.summary.valid, report.summary.rejected) == (5, 1, 4)
-    assert report.summary.validity_pct == pytest.approx(20.0)
-    assert dict(report.summary.by_source) == {"defective_seed": 1, "groq": 1, "template": 3}
+    assert (report.summary.total, report.summary.valid, report.summary.rejected) == (6, 1, 5)
+    assert report.summary.validity_pct == pytest.approx(100 / 6)
+    assert dict(report.summary.by_source) == {"defective_seed": 2, "groq": 1, "template": 3}
 
 
 def test_ledger_file_has_one_json_line_per_proposal(
