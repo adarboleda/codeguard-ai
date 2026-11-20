@@ -4,19 +4,25 @@
 # Reglas:
 #   - Cada valor esperado se calculó A MANO (ver campo `oracle`), sin ejecutar sciref.
 #     Así el oráculo no es circular (plan §2.3).
-#   - Cada función tiene casos `normal`, `frontera` e `invalido`.
+#   - Cada función tiene casos `normal`, `frontera` e `invalido`, salvo threshold_crossings,
+#     cuyo contrato no define entradas inválidas (ver `notes`).
+#   - `invalido` siempre espera una excepción (`raises`); una entrada válida que devuelve
+#     un valor límite (lista vacía, un elemento) es `frontera`.
 #   - Un caso espera un valor (`expected`) o una excepción (`raises`), nunca ambos.
 #   - Los floats se comparan con pytest.approx(rel=1e-9).
 #   - `witness_for` indica qué mutante del catálogo (plan §5.2) detecta el caso.
+#   - `equivalent_to` marca un mutante equivalente relacionado con el caso: ninguna entrada
+#     lo distingue, así que no cuenta como detectable.
 #
-# Estado: pendiente de revisión por Abner (DoD: "esperados revisados por otra persona").
+# Estado: revisado por Abner el 2026-11-19 (44 casos recalculados a mano + 2 casos añadidos).
 
 version: 1
 package: sciref
 responsable: Marcelo
 revisor: Abner
 fecha: 2026-11-18
-estado_revision: pendiente
+fecha_revision: 2026-11-19
+estado_revision: aprobado
 
 functions:
 
@@ -84,39 +90,39 @@ functions:
       - id: CL-01
         kind: normal
         inputs: {x: 5, lo: 0, hi: 10}
-        expected: 5
+        expected: 5.0
         oracle: "0 ≤ 5 ≤ 10 → devuelve x = 5"
 
       - id: CL-02
         kind: normal
         inputs: {x: -3, lo: 0, hi: 10}
-        expected: 0
+        expected: 0.0
         oracle: "−3 < 0 → devuelve lo = 0"
 
       - id: CL-03
         kind: normal
         inputs: {x: 15, lo: 0, hi: 10}
-        expected: 10
+        expected: 10.0
         oracle: "15 > 10 → devuelve hi = 10"
         witness_for: [M04]
 
       - id: CL-04
         kind: frontera
         inputs: {x: 0, lo: 0, hi: 10}
-        expected: 0
-        oracle: "x == lo → devuelve lo = 0 (= x; el mutante M03 es equivalente)"
-        witness_for: [M03]
+        expected: 0.0
+        oracle: "x == lo → devuelve lo = 0 (= x). M03 (x < lo → x <= lo) también devuelve 0: es equivalente y ningún caso lo distingue"
+        equivalent_to: [M03]
 
       - id: CL-05
         kind: frontera
         inputs: {x: 10, lo: 0, hi: 10}
-        expected: 10
+        expected: 10.0
         oracle: "x == hi → devuelve hi = 10 (= x)"
 
       - id: CL-06
         kind: frontera
         inputs: {x: 7, lo: 3, hi: 3}
-        expected: 3
+        expected: 3.0
         oracle: "lo == hi = 3 es válido (no es lo > hi); 7 > 3 → devuelve hi = 3"
 
       - id: CL-07
@@ -223,7 +229,7 @@ functions:
     module: signals
     signature: "threshold_crossings(values, threshold)"
     contract: "índices i tales que values[i−1] < threshold ≤ values[i]"
-    notes: "No define ValueError: las entradas de longitud 0 o 1 devuelven []."
+    notes: "El contrato no define excepciones, así que no hay casos `invalido`: las series de longitud 0 o 1 son `frontera` y devuelven []."
     cases:
       - id: TC-01
         kind: normal
@@ -252,16 +258,22 @@ functions:
         witness_for: [M11]
 
       - id: TC-05
-        kind: invalido
+        kind: frontera
         inputs: {values: [], threshold: 3}
         expected: []
         oracle: "Serie vacía: no hay pares (i−1, i) → []"
 
       - id: TC-06
-        kind: invalido
+        kind: frontera
         inputs: {values: [7], threshold: 3}
         expected: []
         oracle: "Serie de 1 elemento: no hay i−1 → []"
+
+      - id: TC-07
+        kind: frontera
+        inputs: {values: [3, 5], threshold: 3}
+        expected: []
+        oracle: "i=1: 3 < 3 ✗ (el valor previo igual al umbral no es cruce, aunque 3 ≤ 5) → []"
 
   # ---------------------------------------------------------------- validation
   - name: validate_range
@@ -330,3 +342,9 @@ functions:
         inputs: {value: true, lo: 0, hi: 10, inclusive: true}
         raises: TypeError
         oracle: "bool no se acepta como número aunque sea subclase de int → TypeError"
+
+      - id: VR-11
+        kind: invalido
+        inputs: {value: 5, lo: 10, hi: 0, inclusive: true}
+        raises: ValueError
+        oracle: "lo (10) > hi (0) → ValueError"
