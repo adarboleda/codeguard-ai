@@ -10,12 +10,17 @@ import typer
 from codeguard.adapters.generation import (
     CompositeProposalSource,
     DefectiveSeedProposalSource,
+    FileProposalReader,
     FileProposalWriter,
     TemplateProposalSource,
 )
+from codeguard.adapters.ledger import JsonlLedger
 from codeguard.adapters.specs import YamlSpecRepository
+from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
 from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
+from codeguard.application.validate_proposals import ValidateProposals
+from codeguard.application.validation_chain import ValidationChain
 from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
 from codeguard.ports.generation import ProposalSource
 
@@ -165,4 +170,61 @@ def generate_tests(
     typer.echo(
         f"Propuestas generadas: {len(report.proposals)} archivos "
         f"(run_id={resolved_run_id}) en {report.proposals_dir}"
+    )
+
+
+def _build_validation_chain(
+    contracts: tuple[FunctionContract, ...],
+    reference_dir: Path,
+) -> ValidationChain:
+    return ValidationChain(
+        [
+            SyntaxRule(),
+            ImportRule(search_paths=[reference_dir]),
+            TargetRule(contracts),
+            AssertionRule(),
+        ]
+    )
+
+
+@app.command("validate")
+def validate_proposals(
+    run_id: Annotated[
+        str,
+        typer.Option("--run-id", help="Identificador de corrida generado previamente."),
+    ],
+    specs: Annotated[
+        Path,
+        typer.Option("--specs", "-s", help="Ruta al archivo YAML de contratos."),
+    ] = DEFAULT_SPECS_PATH,
+    reference_dir: Annotated[
+        Path,
+        typer.Option("--reference-dir", "-r", help="Directorio raíz del paquete bajo estudio."),
+    ] = DEFAULT_REFERENCE_DIR,
+    out: Annotated[
+        Path,
+        typer.Option("--out", "-o", help="Directorio raíz de salidas (out/)."),
+    ] = DEFAULT_OUT_DIR,
+) -> None:
+    """Valida las propuestas generadas en out/<run_id>/proposals/ y escribe ledger.jsonl."""
+    try:
+        resolved_run_id = _resolve_run_id(run_id)
+        run_dir = out / resolved_run_id
+        contracts = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir]).load()
+        proposals = FileProposalReader().read(run_dir / "proposals")
+        chain = _build_validation_chain(contracts, reference_dir)
+        report = ValidateProposals(chain, JsonlLedger()).execute(proposals, run_dir)
+    except SpecError as error:
+        typer.echo(f"Error de especificación: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    except ValueError as error:
+        typer.echo(f"Error de validación: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    summary = report.summary
+    reasons = ", ".join(f"{reason}={count}" for reason, count in summary.by_reason.items())
+    typer.echo(
+        f"Validación completada: {summary.valid}/{summary.total} válidas "
+        f"({summary.validity_pct:.1f}%), {summary.rejected} rechazadas "
+        f"[motivos: {reasons or 'ninguno'}] | ledger: {report.ledger_path}"
     )
