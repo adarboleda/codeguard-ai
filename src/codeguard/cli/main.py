@@ -7,13 +7,20 @@ from typing import Annotated
 
 import typer
 
-from codeguard.adapters.generation import FileProposalWriter, TemplateProposalSource
+from codeguard.adapters.generation import (
+    CompositeProposalSource,
+    DefectiveSeedProposalSource,
+    FileProposalWriter,
+    TemplateProposalSource,
+)
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
+from codeguard.ports.generation import ProposalSource
 
 DEFAULT_SPECS_PATH = Path("specs/contracts.yaml")
+DEFAULT_SEEDS_PATH = Path("specs/seeds_defective.yaml")
 DEFAULT_REFERENCE_DIR = Path("reference")
 DEFAULT_OUT_DIR = Path("out")
 
@@ -104,6 +111,13 @@ def _resolve_run_id(run_id: str | None) -> str:
     return cleaned
 
 
+def _build_proposal_source(seeds: Path, include_seeds: bool) -> ProposalSource:
+    template_source = TemplateProposalSource()
+    if not include_seeds:
+        return template_source
+    return CompositeProposalSource([template_source, DefectiveSeedProposalSource(seeds)])
+
+
 @app.command("generate")
 def generate_tests(
     specs: Annotated[
@@ -122,12 +136,23 @@ def generate_tests(
         str | None,
         typer.Option("--run-id", help="Identificador de corrida; por defecto marca temporal UTC."),
     ] = None,
+    seeds: Annotated[
+        Path,
+        typer.Option("--seeds", help="Ruta al archivo YAML de semillas defectuosas."),
+    ] = DEFAULT_SEEDS_PATH,
+    include_seeds: Annotated[
+        bool,
+        typer.Option(
+            "--include-seeds/--no-seeds",
+            help="Incluye las semillas defectuosas en el denominador generado.",
+        ),
+    ] = True,
 ) -> None:
     """Genera pruebas pytest desde plantillas Jinja2 en out/<run_id>/proposals/."""
     try:
         resolved_run_id = _resolve_run_id(run_id)
         repository = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir])
-        source = TemplateProposalSource()
+        source = _build_proposal_source(seeds, include_seeds)
         writer = FileProposalWriter()
         report = GenerateTests(repository, source, writer).execute(out / resolved_run_id)
     except SpecError as error:

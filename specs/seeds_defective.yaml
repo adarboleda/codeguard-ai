@@ -1,0 +1,46 @@
+# specs/seeds_defective.yaml — CG-08
+# 2 propuestas defectuosas intencionales para validar el filtro y el denominador del ledger (PA 03).
+
+version: 1
+package: sciref
+
+seeds:
+  - id: SEED-SYNTAX-01
+    case_ids: [WM-01]
+    target_module: sciref.numeric
+    target_function: weighted_mean
+    file_name: test_seed_syntax_error.py
+    expected_reason: SYNTAX_ERROR
+    description: "Semilla defectuosa intencional con paréntesis sin cerrar (sintaxis rota)."
+    code: |
+      """Defective seed proposal SEED-SYNTAX-01 (case WM-01).
+
+      Intentional syntax error for PA 03 validation denominator.
+      """
+
+      from sciref.numeric import weighted_mean
+
+
+      def test_weighted_mean_seed_syntax() -> None:
+          result = weighted_mean(values=[1, 2, 3], weights=[1, 1, 1]
+          assert result == 2.0
+
+  - id: SEED-TAUTOLOGY-01
+    case_ids: [CL-01]
+    target_module: sciref.numeric
+    target_function: clamp
+    file_name: test_seed_tautological.py
+    expected_reason: TAUTOLOGICAL_ASSERTION
+    description: "Semilla defectuosa intencional con aserción tautológica (assert True)."
+    code: |
+      """Defective seed proposal SEED-TAUTOLOGY-01 (case CL-01).
+
+      Intentional tautological assertion for PA 03 validation denominator.
+      """
+
+      from sciref.numeric import clamp
+
+
+      def test_clamp_seed_tautological() -> None:
+          clamp(x=5, lo=0, hi=10)
+          assert True
