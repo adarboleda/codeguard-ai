@@ -66,8 +66,14 @@ mutants:
     family: validacion
     function: clamp
     change: "Omite lo > hi → ValueError"
-    original: "if lo > hi:"
-    mutated: "if False:"
+    original: |
+      if lo > hi:
+              raise ValueError("lo must be less than or equal to hi")
+          if x < lo:
+    mutated: |
+      if False:
+              raise ValueError("lo must be less than or equal to hi")
+          if x < lo:
     witness: {x: 5, lo: 10, hi: 0}
     expected: {original: ValueError, mutant: 10.0}
     status: killable
