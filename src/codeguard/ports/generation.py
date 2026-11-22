@@ -1,4 +1,4 @@
-"""Ports for test proposal generation and persistence (CG-07)."""
+"""Ports for test proposal generation and persistence (CG-07, CG-08)."""
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -20,4 +20,12 @@ class ProposalWriter(Protocol):
 
     def write(self, proposals: Sequence[TestProposal], proposals_dir: Path) -> tuple[Path, ...]:
         """Persist each proposal as a ``test_*.py`` file in ``proposals_dir``."""
+        ...
+
+
+class ProposalReader(Protocol):
+    """Port for reading persisted test proposals back from disk."""
+
+    def read(self, proposals_dir: Path) -> tuple[TestProposal, ...]:
+        """Load ``TestProposal`` objects from ``proposals_dir``."""
         ...
