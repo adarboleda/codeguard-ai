@@ -1,0 +1,14 @@
+"""Generated exception test for {{ target_module }}.{{ target_function }} (case {{ case_id }}).
+
+Case kind: {{ case_kind }}
+Oracle: {{ description }}
+"""
+
+import pytest
+
+from {{ target_module }} import {{ target_function }}
+
+
+def test_{{ target_function }}_{{ case_slug }}() -> None:
+    with pytest.raises({{ expected_exception }}):
+        {{ target_function }}({{ call_args_str }})

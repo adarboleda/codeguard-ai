@@ -1,17 +1,21 @@
 """Typer CLI entrypoint for CodeGuard AI."""
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from codeguard.adapters.generation import FileProposalWriter, TemplateProposalSource
 from codeguard.adapters.specs import YamlSpecRepository
+from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
 
 DEFAULT_SPECS_PATH = Path("specs/contracts.yaml")
 DEFAULT_REFERENCE_DIR = Path("reference")
+DEFAULT_OUT_DIR = Path("out")
 
 app = typer.Typer(
     name="codeguard",
@@ -89,3 +93,51 @@ def list_contracts(
         typer.echo("")
         for line in _format_contract_block(index, contract):
             typer.echo(line)
+
+
+def _resolve_run_id(run_id: str | None) -> str:
+    if run_id is None:
+        return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    cleaned = run_id.strip()
+    if not cleaned or "/" in cleaned or "\\" in cleaned or ".." in cleaned:
+        raise ValueError(f"Invalid run_id {run_id!r}: must be a single non-empty directory name")
+    return cleaned
+
+
+@app.command("generate")
+def generate_tests(
+    specs: Annotated[
+        Path,
+        typer.Option("--specs", "-s", help="Ruta al archivo YAML de contratos."),
+    ] = DEFAULT_SPECS_PATH,
+    reference_dir: Annotated[
+        Path,
+        typer.Option("--reference-dir", "-r", help="Directorio raíz del paquete bajo estudio."),
+    ] = DEFAULT_REFERENCE_DIR,
+    out: Annotated[
+        Path,
+        typer.Option("--out", "-o", help="Directorio raíz de salidas (out/)."),
+    ] = DEFAULT_OUT_DIR,
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", help="Identificador de corrida; por defecto marca temporal UTC."),
+    ] = None,
+) -> None:
+    """Genera pruebas pytest desde plantillas Jinja2 en out/<run_id>/proposals/."""
+    try:
+        resolved_run_id = _resolve_run_id(run_id)
+        repository = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir])
+        source = TemplateProposalSource()
+        writer = FileProposalWriter()
+        report = GenerateTests(repository, source, writer).execute(out / resolved_run_id)
+    except SpecError as error:
+        typer.echo(f"Error de especificación: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    except ValueError as error:
+        typer.echo(f"Error de generación: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(
+        f"Propuestas generadas: {len(report.proposals)} archivos "
+        f"(run_id={resolved_run_id}) en {report.proposals_dir}"
+    )

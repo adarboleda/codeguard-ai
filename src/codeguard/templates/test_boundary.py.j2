@@ -1,0 +1,16 @@
+"""Generated boundary test for {{ target_module }}.{{ target_function }} (case {{ case_id }}).
+
+Case kind: {{ case_kind }}
+Oracle: {{ description }}
+"""
+
+from {{ target_module }} import {{ target_function }}
+
+
+def test_{{ target_function }}_{{ case_slug }}() -> None:
+    result = {{ target_function }}({{ call_args_str }})
+{% if expected_is_bool %}
+    assert result is {{ expected_literal }}
+{% else %}
+    assert result == {{ expected_literal }}
+{% endif %}
