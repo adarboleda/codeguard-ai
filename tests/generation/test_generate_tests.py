@@ -100,15 +100,18 @@ def test_generate_tests_rejects_duplicate_proposal_ids(tmp_path: Path) -> None:
 
 def test_file_writer_rejects_unsafe_or_duplicate_file_names(tmp_path: Path) -> None:
     writer = FileProposalWriter()
+    escape_batch = [_sample_proposal("p-1", "../escape.py")]
+    empty_name_batch = [_sample_proposal("p-1", "")]
+    duplicate_batch = [
+        _sample_proposal("p-1", "test_same.py"),
+        _sample_proposal("p-2", "test_same.py"),
+    ]
 
     with pytest.raises(ValueError, match="unsafe proposal file_name"):
-        writer.write([_sample_proposal("p-1", "../escape.py")], tmp_path)
+        writer.write(escape_batch, tmp_path)
 
     with pytest.raises(ValueError, match="unsafe proposal file_name"):
-        writer.write([_sample_proposal("p-1", "")], tmp_path)
+        writer.write(empty_name_batch, tmp_path)
 
     with pytest.raises(ValueError, match="duplicate proposal file_name"):
-        writer.write(
-            [_sample_proposal("p-1", "test_same.py"), _sample_proposal("p-2", "test_same.py")],
-            tmp_path,
-        )
+        writer.write(duplicate_batch, tmp_path)

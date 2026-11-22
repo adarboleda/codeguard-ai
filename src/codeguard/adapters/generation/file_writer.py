@@ -6,7 +6,7 @@ from pathlib import Path
 
 from codeguard.domain import TestProposal
 
-_SAFE_FILE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.py$")
+_SAFE_FILE_NAME = re.compile(r"^[A-Za-z_]\w*\.py$", re.ASCII)
 
 
 class FileProposalWriter:

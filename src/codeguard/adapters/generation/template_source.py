@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, PackageLoader, StrictUndefined
+from jinja2 import Environment, FileSystemLoader, PackageLoader, StrictUndefined, select_autoescape
 
 from codeguard.domain import (
     CaseKind,
@@ -42,7 +42,7 @@ class TemplateProposalSource:
         )
         self._env = Environment(
             loader=loader,
-            autoescape=False,
+            autoescape=select_autoescape(["html", "xml"]),
             keep_trailing_newline=True,
             trim_blocks=True,
             lstrip_blocks=True,
@@ -112,28 +112,43 @@ def _format_call_args(inputs: Mapping[str, object]) -> str:
     return ", ".join(f"{name}={_format_python_literal(value)}" for name, value in inputs.items())
 
 
+def _format_float_literal(value: float) -> str:
+    """Render a float literal, handling NaN and +/-inf without bare names."""
+    if math.isnan(value):
+        return 'float("nan")'
+    if math.isinf(value):
+        return 'float("inf")' if value > 0 else 'float("-inf")'
+    return repr(value)
+
+
+def _format_tuple_literal(value: tuple[object, ...]) -> str:
+    """Render a tuple literal, preserving the trailing comma for 1-tuples."""
+    items = ", ".join(_format_python_literal(item) for item in value)
+    return f"({items},)" if len(value) == 1 else f"({items})"
+
+
+def _format_dict_literal(value: dict[object, object]) -> str:
+    """Render a dict literal with recursively formatted keys and values."""
+    pairs = ", ".join(
+        f"{_format_python_literal(key)}: {_format_python_literal(val)}"
+        for key, val in value.items()
+    )
+    return f"{{{pairs}}}"
+
+
 def _format_python_literal(value: object) -> str:
     """Render a Python source literal, handling bool, NaN, and +/-inf safely."""
     if isinstance(value, bool):
         return "True" if value else "False"
     if isinstance(value, float):
-        if math.isnan(value):
-            return 'float("nan")'
-        if math.isinf(value):
-            return 'float("inf")' if value > 0 else 'float("-inf")'
-        return repr(value)
+        return _format_float_literal(value)
     if isinstance(value, list):
         items = ", ".join(_format_python_literal(item) for item in value)
         return f"[{items}]"
     if isinstance(value, tuple):
-        items = ", ".join(_format_python_literal(item) for item in value)
-        return f"({items},)" if len(value) == 1 else f"({items})"
+        return _format_tuple_literal(value)
     if isinstance(value, dict):
-        pairs = ", ".join(
-            f"{_format_python_literal(key)}: {_format_python_literal(val)}"
-            for key, val in value.items()
-        )
-        return f"{{{pairs}}}"
+        return _format_dict_literal(value)
     return repr(value)
 
 
