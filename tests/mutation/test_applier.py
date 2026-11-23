@@ -84,8 +84,10 @@ def test_apply_mutant_rejects_snippet_that_is_absent(tmp_path: Path) -> None:
     package.mkdir()
     (package / "mod.py").write_text("a = 1\n", encoding="utf-8")
 
+    spec = _spec(original="zzz")
+
     with pytest.raises(MutantApplyError, match="found 0 times"):
-        apply_mutant(_spec(original="zzz"), package)
+        apply_mutant(spec, package)
 
 
 def test_apply_mutant_rejects_ambiguous_snippet(tmp_path: Path) -> None:
@@ -93,8 +95,10 @@ def test_apply_mutant_rejects_ambiguous_snippet(tmp_path: Path) -> None:
     package.mkdir()
     (package / "mod.py").write_text("a = 1\nb = 1\n", encoding="utf-8")
 
+    spec = _spec(original="= 1", mutated="= 2")
+
     with pytest.raises(MutantApplyError, match="found 2 times"):
-        apply_mutant(_spec(original="= 1", mutated="= 2"), package)
+        apply_mutant(spec, package)
 
 
 def test_load_catalog_rejects_duplicate_ids(tmp_path: Path) -> None:
