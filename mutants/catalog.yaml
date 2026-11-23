@@ -1,0 +1,153 @@
+# mutants/catalog.yaml — CG-13
+# Catálogo de 13 mutantes sobre reference/sciref (plan §5.2).
+#
+# Campos:
+#   id           identificador (M01..M13)
+#   family       familia de error
+#   function     función objetivo (módulo en sciref)
+#   change       descripción del cambio
+#   original     línea original en reference/sciref
+#   mutated      línea mutada (sustitución exacta en la copia temporal)
+#   witness      entrada testigo
+#   expected     {original, mutant}: salida o excepción en cada versión
+#   status       killable | equivalent
+#
+# El mutante equivalente (M03) se reporta aparte y no cuenta como detectado ni como fallo.
+# Quedan 12 mutantes válidos (≥ 2 por función).
+
+version: 1
+responsable: Marcelo
+package: sciref
+fecha: 2026-11-22
+
+mutants:
+
+  - id: M01
+    family: calculo_numerico
+    function: weighted_mean
+    change: "Divide entre len(values) en vez de Σw"
+    original: "return float(weighted_sum / total_weight)"
+    mutated: "return float(weighted_sum / len(values))"
+    witness: {values: [1, 3], weights: [1, 3]}
+    expected: {original: 2.5, mutant: 5.0}
+    status: killable
+
+  - id: M02
+    family: validacion
+    function: weighted_mean
+    change: "Omite el chequeo de peso negativo"
+    original: "if any(w < 0 for w in weights):"
+    mutated: "if False:"
+    witness: {values: [1, 2], weights: [-1, 2]}
+    expected: {original: ValueError, mutant: 3.0}
+    status: killable
+
+  - id: M03
+    family: condicion_logica
+    function: clamp
+    change: "x < lo → x <= lo (equivalente: con x == lo ambos devuelven lo)"
+    original: "if x < lo:"
+    mutated: "if x <= lo:"
+    witness: {x: 0, lo: 0, hi: 10}
+    expected: {original: 0.0, mutant: 0.0}
+    status: equivalent
+
+  - id: M04
+    family: condicion_logica
+    function: clamp
+    change: "Devuelve lo cuando x > hi"
+    original: "return float(hi)"
+    mutated: "return float(lo)"
+    witness: {x: 15, lo: 0, hi: 10}
+    expected: {original: 10.0, mutant: 0.0}
+    status: killable
+
+  - id: M05
+    family: validacion
+    function: clamp
+    change: "Omite lo > hi → ValueError"
+    original: "if lo > hi:"
+    mutated: "if False:"
+    witness: {x: 5, lo: 10, hi: 0}
+    expected: {original: ValueError, mutant: 10.0}
+    status: killable
+
+  - id: M06
+    family: excepcion
+    function: normalize_minmax
+    change: "Elimina la rama 'todos iguales'"
+    original: "if span == 0:"
+    mutated: "if False:"
+    witness: {values: [5, 5, 5]}
+    expected: {original: [0.0, 0.0, 0.0], mutant: ZeroDivisionError}
+    status: killable
+
+  - id: M07
+    family: calculo_numerico
+    function: normalize_minmax
+    change: "Divide entre max en vez de max − min"
+    original: "return [float((v - v_min) / span) for v in values]"
+    mutated: "return [float((v - v_min) / v_max) for v in values]"
+    witness: {values: [2, 4]}
+    expected: {original: [0.0, 1.0], mutant: [0.0, 0.5]}
+    status: killable
+
+  - id: M08
+    family: frontera_indice
+    function: moving_average
+    change: "range(n - window) en vez de range(n - window + 1)"
+    original: "return [sum(values[i : i + window]) / window for i in range(n - window + 1)]"
+    mutated: "return [sum(values[i : i + window]) / window for i in range(n - window)]"
+    witness: {values: [1, 2, 3], window: 2}
+    expected: {original: [1.5, 2.5], mutant: [1.5]}
+    status: killable
+
+  - id: M09
+    family: frontera
+    function: moving_average
+    change: "window > n → window >= n"
+    original: "if window < 1 or window > n:"
+    mutated: "if window < 1 or window >= n:"
+    witness: {values: [1, 2, 3], window: 3}
+    expected: {original: [2.0], mutant: ValueError}
+    status: killable
+
+  - id: M10
+    family: condicion_logica
+    function: threshold_crossings
+    change: "threshold <= v[i] → threshold < v[i]"
+    original: "if values[i - 1] < threshold <= values[i]"
+    mutated: "if values[i - 1] < threshold < values[i]"
+    witness: {values: [0, 5], threshold: 5}
+    expected: {original: [1], mutant: []}
+    status: killable
+
+  - id: M11
+    family: indice
+    function: threshold_crossings
+    change: "El bucle empieza en 0 (compara con v[-1])"
+    original: "for i in range(1, len(values))"
+    mutated: "for i in range(len(values))"
+    witness: {values: [5, 0], threshold: 3}
+    expected: {original: [], mutant: [0]}
+    status: killable
+
+  - id: M12
+    family: condicion_logica
+    function: validate_range
+    change: "Invierte el modo inclusive"
+    original: "if inclusive:"
+    mutated: "if not inclusive:"
+    witness: {value: 10, lo: 0, hi: 10, inclusive: true}
+    expected: {original: true, mutant: false}
+    status: killable
+
+  - id: M13
+    family: validacion
+    function: validate_range
+    change: "Omite el chequeo de NaN"
+    original: "if any(math.isnan(arg) for arg in (value, lo, hi)):"
+    mutated: "if False:"
+    witness: {value: .nan, lo: 0, hi: 1}
+    expected: {original: ValueError, mutant: false}
+    status: killable
