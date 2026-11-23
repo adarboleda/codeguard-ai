@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from codeguard.cli.main import app
 
@@ -140,3 +140,36 @@ def test_cli_generate_reports_invalid_specs_seeds_and_run_id(tmp_path: Path) -> 
     )
     assert bad_run_id.exit_code == 1
     assert "Error de generación" in bad_run_id.output
+
+
+def _generate(out: Path, run_id: str, *extra: str) -> Result:
+    return runner.invoke(
+        app,
+        [
+            "generate",
+            "--specs",
+            str(CONTRACTS_PATH),
+            "--seeds",
+            str(SEEDS_PATH),
+            "--reference-dir",
+            str(REFERENCE_DIR),
+            "--out",
+            str(out),
+            "--run-id",
+            run_id,
+            *extra,
+        ],
+    )
+
+
+def test_cli_generate_refuses_to_reuse_a_run_id(tmp_path: Path) -> None:
+    """Regression: regenerating over a run_id left stale seeds next to the new manifest."""
+    first = _generate(tmp_path, "demo")
+    second = _generate(tmp_path, "demo", "--no-seeds")
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 1
+    assert "Error de generación" in second.output
+    assert "use a new --run-id" in second.output
+    proposals_dir = tmp_path / "demo" / "proposals"
+    assert len(list(proposals_dir.glob("test_*.py"))) == 48  # first run left intact

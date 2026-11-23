@@ -143,3 +143,38 @@ def test_reader_rejects_invalid_record_unsafe_filename_and_missing_source(tmp_pa
 
     with pytest.raises(ValueError, match="proposal_id"):
         reader.read(blank_id_dir)
+
+
+def _single_proposal(file_name: str = "test_clamp_cl_01.py") -> TestProposal:
+    return TestProposal(
+        proposal_id="tpl-clamp-cl_01",
+        target_module="sciref.numeric",
+        target_function="clamp",
+        source=ProposalSourceKind.TEMPLATE,
+        code="def test_clamp_cl_01() -> None:\n    assert True\n",
+        case_ids=("CL-01",),
+        file_name=file_name,
+    )
+
+
+def test_writer_refuses_a_proposals_dir_with_previous_files(tmp_path: Path) -> None:
+    """A run is generated once: stale test files must never mix with a new generation."""
+    proposals_dir = tmp_path / "proposals"
+    proposals_dir.mkdir()
+    stale = proposals_dir / "test_seed_tautological.py"
+    stale.write_text("# from a previous generation\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"already contains files.*use a new --run-id"):
+        FileProposalWriter().write([_single_proposal()], proposals_dir)
+
+    assert stale.read_text(encoding="utf-8") == "# from a previous generation\n"
+    assert sorted(path.name for path in proposals_dir.iterdir()) == ["test_seed_tautological.py"]
+
+
+def test_writer_accepts_an_existing_empty_proposals_dir(tmp_path: Path) -> None:
+    proposals_dir = tmp_path / "proposals"
+    proposals_dir.mkdir()
+
+    written = FileProposalWriter().write([_single_proposal()], proposals_dir)
+
+    assert [path.name for path in written] == ["test_clamp_cl_01.py"]
