@@ -70,3 +70,8 @@ def test_malformed_line_reports_file_and_line(tmp_path: Path, bad_line: str) -> 
 
     with pytest.raises(ValueError, match=f"{LEDGER_FILE_NAME}:2: invalid ledger line"):
         ledger.read(path)
+
+
+def test_missing_ledger_file_has_a_clear_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"ledger not found.*codeguard validate"):
+        JsonlLedger().read(tmp_path / LEDGER_FILE_NAME)

@@ -22,6 +22,8 @@ class JsonlLedger:
 
     def read(self, path: Path) -> tuple[LedgerEntry, ...]:
         """Read entries back; raise ValueError naming the line if one is malformed."""
+        if not path.is_file():
+            raise ValueError(f"ledger not found: {path}; run 'codeguard validate' first")
         entries: list[LedgerEntry] = []
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if not line.strip():
