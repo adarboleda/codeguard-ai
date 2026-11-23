@@ -15,7 +15,11 @@ class FileProposalWriter:
     """Persists generated ``TestProposal`` modules into ``out/<run_id>/proposals/``."""
 
     def write(self, proposals: Sequence[TestProposal], proposals_dir: Path) -> tuple[Path, ...]:
-        """Validate file names, create ``proposals_dir``, and write files plus manifest."""
+        """Validate file names, create ``proposals_dir``, and write files plus manifest.
+
+        Refuses a ``proposals_dir`` that already contains files: a run is generated once,
+        so files from a previous generation can never mix with the new manifest.
+        """
         seen_names: set[str] = set()
         for proposal in proposals:
             _validate_file_name(proposal.file_name)
@@ -23,6 +27,7 @@ class FileProposalWriter:
                 raise ValueError(f"duplicate proposal file_name: {proposal.file_name}")
             seen_names.add(proposal.file_name)
 
+        _require_fresh_dir(proposals_dir)
         proposals_dir.mkdir(parents=True, exist_ok=True)
         written_paths: list[Path] = []
         for proposal in proposals:
@@ -56,3 +61,11 @@ def _write_manifest(proposals: Sequence[TestProposal], proposals_dir: Path) -> N
 def _validate_file_name(file_name: str) -> None:
     if not _SAFE_FILE_NAME.match(file_name):
         raise ValueError(f"unsafe proposal file_name: {file_name!r}")
+
+
+def _require_fresh_dir(proposals_dir: Path) -> None:
+    if proposals_dir.is_dir() and any(proposals_dir.iterdir()):
+        raise ValueError(
+            f"proposals directory already contains files: {proposals_dir}; "
+            "use a new --run-id (each run is generated only once)"
+        )
