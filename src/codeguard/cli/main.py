@@ -21,6 +21,12 @@ from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.application.validate_proposals import ValidateProposals
 from codeguard.application.validation_chain import ValidationChain
+from codeguard.cli.pipeline_commands import (
+    all_command,
+    mutate_command,
+    report_command,
+    scan_command,
+)
 from codeguard.cli.run_command import run_tests
 from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
 from codeguard.ports.generation import ProposalSource
@@ -232,3 +238,7 @@ def validate_proposals(
 
 
 app.command("run")(run_tests)
+app.command("mutate")(mutate_command)
+app.command("scan")(scan_command)
+app.command("report")(report_command)
+app.command("all")(all_command)
