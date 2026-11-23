@@ -21,6 +21,7 @@ from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.application.validate_proposals import ValidateProposals
 from codeguard.application.validation_chain import ValidationChain
+from codeguard.cli.run_command import run_tests
 from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
 from codeguard.ports.generation import ProposalSource
 
@@ -228,3 +229,6 @@ def validate_proposals(
         f"({summary.validity_pct:.1f}%), {summary.rejected} rechazadas "
         f"[motivos: {reasons or 'ninguno'}] | ledger: {report.ledger_path}"
     )
+
+
+app.command("run")(run_tests)

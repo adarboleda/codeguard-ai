@@ -1,0 +1,7 @@
+# Configuración de CodeGuard AI (plan §4.4: sin números mágicos en el código).
+# La CLI completa (CG-23) los copiará a run_config.json en cada corrida.
+
+[runner]
+# Tiempo máximo de una ejecución completa de pytest (suite original o un mutante).
+# Si se supera, la ejecución se corta y se reporta como timeout, nunca como detección.
+timeout_seconds = 60
