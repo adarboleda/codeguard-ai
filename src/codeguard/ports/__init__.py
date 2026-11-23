@@ -3,6 +3,7 @@
 from .generation import ProposalReader, ProposalSource, ProposalWriter
 from .ledger import LedgerRepository
 from .specs import SpecRepository
+from .static import StaticRule
 from .validation import ValidationRule
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "ProposalSource",
     "ProposalWriter",
     "SpecRepository",
+    "StaticRule",
     "ValidationRule",
 ]
