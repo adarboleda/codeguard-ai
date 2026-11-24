@@ -53,6 +53,8 @@ def test_cli_scan_and_report_commands(tmp_path: Path) -> None:
     )
     assert report_result.exit_code == 0, report_result.output
     summary_path = tmp_path / "scan-only" / "summary.json"
+    results_path = tmp_path / "scan-only" / "results.json"
+    assert results_path.is_file()
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["run_id"] == "scan-only"
     assert summary["static_scan"]["total"] == 4
@@ -177,10 +179,32 @@ def test_cli_all_reproduces_full_pipeline_and_writes_run_config(tmp_path: Path) 
     killed = [item for item in mutants if item["status"] == "KILLED"]
     assert len(killed) >= 10
     m03 = next(item for item in mutants if item["mutant_id"] == "M03")
-    assert m03["status"] == "SURVIVED"
+    assert m03["status"] == "EQUIVALENT"
 
     findings = json.loads((run_dir / "findings.json").read_text(encoding="utf-8"))
     assert len(findings) == 4
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    assert results["validity"]["denominator"] == 48
+    assert results["validity"]["proposals_valid"] == 46
+    assert results["validity"]["proposals_rejected"] == 2
+    assert results["validity"]["includes_defective_seeds"] is True
+    assert results["mutation"]["mutants_total"] == 13
+    assert results["mutation"]["mutants_equivalent"] == 1
+    assert results["mutation"]["mutants_invalid"] == 0
+    assert results["mutation"]["valid_denominator"] == 12
+    assert results["mutation"]["mutants_killed"] == 12
+    assert results["mutation"]["mutation_score_pct"] == 100.0
+    assert set(results["timings_seconds"]) == {
+        "generate",
+        "validate",
+        "run",
+        "mutate",
+        "scan",
+        "report",
+        "total",
+    }
+    assert results["timings_seconds"]["total"] > 0
 
 
 def test_makefile_exposes_all_target() -> None:
