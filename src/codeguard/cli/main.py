@@ -1,5 +1,6 @@
 """Typer CLI entrypoint for CodeGuard AI."""
 
+import contextlib
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,6 +8,8 @@ from typing import Annotated
 
 import typer
 
+from codeguard.adapters.config import DEFAULT_CONFIG_FILE, load_settings
+from codeguard.adapters.execution import SCIREF_PACKAGE_NAME, verify_sciref_integrity
 from codeguard.adapters.generation import (
     CompositeProposalSource,
     DefectiveSeedProposalSource,
@@ -17,6 +20,9 @@ from codeguard.adapters.generation import (
 from codeguard.adapters.ledger import JsonlLedger
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
+from codeguard.adapters.validation.import_rule import (
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
+)
 from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.application.validate_proposals import ValidateProposals
@@ -28,7 +34,13 @@ from codeguard.cli.pipeline_commands import (
     scan_command,
 )
 from codeguard.cli.run_command import run_tests
-from codeguard.domain import CaseKind, ContractCase, FunctionContract, SpecError
+from codeguard.domain import (
+    CaseKind,
+    CodeGuardError,
+    ContractCase,
+    FunctionContract,
+    SpecError,
+)
 from codeguard.ports.generation import ProposalSource
 
 DEFAULT_SPECS_PATH = Path("specs/contracts.yaml")
@@ -183,11 +195,12 @@ def generate_tests(
 def _build_validation_chain(
     contracts: tuple[FunctionContract, ...],
     reference_dir: Path,
+    import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS,
 ) -> ValidationChain:
     return ValidationChain(
         [
             SyntaxRule(),
-            ImportRule(search_paths=[reference_dir]),
+            ImportRule(search_paths=[reference_dir], timeout_seconds=import_timeout_seconds),
             TargetRule(contracts),
             AssertionRule(),
         ]
@@ -212,19 +225,37 @@ def validate_proposals(
         Path,
         typer.Option("--out", "-o", help="Directorio raíz de salidas (out/)."),
     ] = DEFAULT_OUT_DIR,
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help=f"Archivo de configuración [default: {DEFAULT_CONFIG_FILE}]"),
+    ] = None,
+    timeout: Annotated[
+        float | None,
+        typer.Option("--timeout", help="Segundos máximos de importación por propuesta."),
+    ] = None,
 ) -> None:
     """Valida las propuestas generadas en out/<run_id>/proposals/ y escribe ledger.jsonl."""
     try:
         resolved_run_id = _resolve_run_id(run_id)
         run_dir = out / resolved_run_id
-        contracts = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir]).load()
-        proposals = FileProposalReader().read(run_dir / "proposals")
-        chain = _build_validation_chain(contracts, reference_dir)
-        report = ValidateProposals(chain, JsonlLedger()).execute(proposals, run_dir)
+        settings = load_settings(config or DEFAULT_CONFIG_FILE, required=config is not None)
+        import_timeout = settings.runner.import_timeout_seconds if timeout is None else timeout
+        if import_timeout <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        guard = (
+            verify_sciref_integrity(reference_dir)
+            if (reference_dir / SCIREF_PACKAGE_NAME).is_dir()
+            else contextlib.nullcontext()
+        )
+        with guard:
+            contracts = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir]).load()
+            proposals = FileProposalReader().read(run_dir / "proposals")
+            chain = _build_validation_chain(contracts, reference_dir, import_timeout)
+            report = ValidateProposals(chain, JsonlLedger()).execute(proposals, run_dir)
     except SpecError as error:
         typer.echo(f"Error de especificación: {error}", err=True)
         raise typer.Exit(code=1) from error
-    except ValueError as error:
+    except (CodeGuardError, ValueError) as error:
         typer.echo(f"Error de validación: {error}", err=True)
         raise typer.Exit(code=1) from error
 

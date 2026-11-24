@@ -5,10 +5,11 @@ from typing import Annotated
 
 import typer
 
-from codeguard.adapters.config import DEFAULT_CONFIG_FILE, ConfigError, load_settings
+from codeguard.adapters.config import DEFAULT_CONFIG_FILE, load_settings
 from codeguard.adapters.execution import PytestSubprocessRunner
 from codeguard.adapters.ledger import LEDGER_FILE_NAME, JsonlLedger
 from codeguard.application.run_suite import ExecutionReport, RunSuite
+from codeguard.domain.errors import CodeGuardError
 from codeguard.domain.execution import SuiteResult
 
 _MAX_FAILURES_SHOWN = 10
@@ -46,7 +47,7 @@ def run_tests(
             package_root=reference_dir,
             output_dir=run_dir,
         )
-    except (ConfigError, ValueError) as error:
+    except (CodeGuardError, ValueError) as error:
         typer.echo(f"Error de ejecución: {error}", err=True)
         raise typer.Exit(code=1) from error
     for line in _summary_lines(report):

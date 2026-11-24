@@ -1,6 +1,5 @@
 """End-to-end pipeline orchestration, stage runners, and run_config.json (CG-23)."""
 
-import hashlib
 import importlib.metadata
 import json
 import platform
@@ -14,7 +13,11 @@ from types import MappingProxyType
 import yaml
 
 import codeguard
-from codeguard.adapters.execution import PytestSubprocessRunner
+from codeguard.adapters.execution import (
+    PytestSubprocessRunner,
+    compute_sciref_snapshot,
+    verify_sciref_integrity,
+)
 from codeguard.adapters.execution.junit import parse_junit
 from codeguard.adapters.generation import (
     CompositeProposalSource,
@@ -26,13 +29,15 @@ from codeguard.adapters.ledger import LEDGER_FILE_NAME, JsonlLedger
 from codeguard.adapters.mutation import (
     PACKAGE_NAME,
     MutantSpec,
-    file_digests,
     load_catalog,
     mutant_workspace,
 )
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.static import scan_paths
 from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
+from codeguard.adapters.validation.import_rule import (
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
+)
 from codeguard.application.compute_metrics import ComputeMetrics
 from codeguard.application.generate_tests import GenerateTests, GenerationReport
 from codeguard.application.run_suite import RunSuite
@@ -126,6 +131,7 @@ class PipelineOptions:
     out_dir: Path
     timeout_seconds: float
     seed: int = DEFAULT_SEED
+    import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -166,12 +172,13 @@ def run_mutation_stage(
     equivalent_ids = _load_equivalent_mutant_ids(catalog_path)
     runner = PytestSubprocessRunner(timeout_seconds)
     ledger = JsonlLedger()
-    outcomes = tuple(
-        _evaluate_single_mutant(
-            spec, run_dir, ledger_path, reference_dir, runner, ledger, equivalent_ids
+    with verify_sciref_integrity(reference_dir):
+        outcomes = tuple(
+            _evaluate_single_mutant(
+                spec, run_dir, ledger_path, reference_dir, runner, ledger, equivalent_ids
+            )
+            for spec in specs
         )
-        for spec in specs
-    )
     output_path = run_dir / MUTANTS_FILE_NAME
     payload = [asdict(item) for item in outcomes]
     _write_json(output_path, payload)
@@ -231,7 +238,10 @@ def write_run_config(
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "seed": options.seed,
         "versions": _collect_versions(),
-        "timeouts": {"runner_timeout_seconds": options.timeout_seconds},
+        "timeouts": {
+            "runner_timeout_seconds": options.timeout_seconds,
+            "import_timeout_seconds": options.import_timeout_seconds,
+        },
         "sciref_sha256": _compute_sciref_hashes(options.reference_dir),
         "include_seeds": options.include_seeds,
         "paths": {
@@ -258,29 +268,32 @@ class RunPipeline:
         run_dir = options.out_dir / options.run_id
         durations: dict[str, float] = {}
 
-        gen_report, durations["generate"] = _timed(lambda: self._stage_generate(options, run_dir))
-        val_report, durations["validate"] = _timed(
-            lambda: self._stage_validate(options, gen_report, run_dir)
-        )
-        baseline, durations["run"] = _timed(lambda: self._stage_run(options, run_dir))
-        if not baseline.is_green:
-            raise ValueError("baseline suite failed; aborting mutation stage")
-
-        mut_report, durations["mutate"] = _timed(
-            lambda: run_mutation_stage(
-                run_dir, options.catalog_path, options.reference_dir, options.timeout_seconds
+        with verify_sciref_integrity(options.reference_dir):
+            gen_report, durations["generate"] = _timed(
+                lambda: self._stage_generate(options, run_dir)
             )
-        )
-        scan_report, durations["scan"] = _timed(
-            lambda: run_scan_stage(run_dir, options.scan_targets)
-        )
+            val_report, durations["validate"] = _timed(
+                lambda: self._stage_validate(options, gen_report, run_dir)
+            )
+            baseline, durations["run"] = _timed(lambda: self._stage_run(options, run_dir))
+            if not baseline.is_green:
+                raise ValueError("baseline suite failed; aborting mutation stage")
 
-        report_start = time.perf_counter()
-        run_config_path = write_run_config(options, run_dir, durations)
-        summary = build_summary_report(run_dir)
-        durations["report"] = time.perf_counter() - report_start
-        write_run_config(options, run_dir, durations)
-        ComputeMetrics().execute(run_dir)
+            mut_report, durations["mutate"] = _timed(
+                lambda: run_mutation_stage(
+                    run_dir, options.catalog_path, options.reference_dir, options.timeout_seconds
+                )
+            )
+            scan_report, durations["scan"] = _timed(
+                lambda: run_scan_stage(run_dir, options.scan_targets)
+            )
+
+            report_start = time.perf_counter()
+            run_config_path = write_run_config(options, run_dir, durations)
+            summary = build_summary_report(run_dir)
+            durations["report"] = time.perf_counter() - report_start
+            write_run_config(options, run_dir, durations)
+            ComputeMetrics().execute(run_dir)
 
         return PipelineResult(
             run_id=options.run_id,
@@ -314,7 +327,7 @@ class RunPipeline:
         contracts = YamlSpecRepository(
             specs_path=options.specs_path, search_paths=[options.reference_dir]
         ).load()
-        chain = _validation_chain(contracts, options.reference_dir)
+        chain = _validation_chain(contracts, options.reference_dir, options.import_timeout_seconds)
         return ValidateProposals(chain, JsonlLedger()).execute(generation.proposals, run_dir)
 
     def _stage_run(self, options: PipelineOptions, run_dir: Path) -> SuiteResult:
@@ -339,11 +352,12 @@ def _build_source(options: PipelineOptions) -> ProposalSource:
 def _validation_chain(
     contracts: tuple[FunctionContract, ...],
     reference_dir: Path,
+    import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS,
 ) -> ValidationChain:
     return ValidationChain(
         [
             SyntaxRule(),
-            ImportRule(search_paths=[reference_dir]),
+            ImportRule(search_paths=[reference_dir], timeout_seconds=import_timeout_seconds),
             TargetRule(contracts),
             AssertionRule(),
         ]
@@ -430,12 +444,7 @@ def _compute_sciref_hashes(reference_dir: Path) -> dict[str, object]:
     package_dir = reference_dir / PACKAGE_NAME
     if not package_dir.is_dir():
         raise ValueError(f"reference package not found: {package_dir}")
-    files = file_digests(package_dir)
-    manifest_lines = "".join(
-        f"{digest}  {rel_path}\n" for rel_path, digest in sorted(files.items())
-    )
-    combined = hashlib.sha256(manifest_lines.encode("utf-8")).hexdigest()
-    return {"combined": combined, "files": files}
+    return compute_sciref_snapshot(reference_dir).to_dict()
 
 
 def _attach_run_config_summary(payload: dict[str, object], path: Path) -> None:

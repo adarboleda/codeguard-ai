@@ -5,6 +5,7 @@ directory, so the original ``reference/`` is never written (no ``__pycache__``,
 no ``.pytest_cache``). The JUnit XML report is written to ``output_dir/junit.xml``.
 """
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -14,6 +15,10 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from codeguard.adapters.execution.integrity import (
+    SCIREF_PACKAGE_NAME,
+    verify_sciref_integrity,
+)
 from codeguard.adapters.execution.junit import parse_junit
 from codeguard.domain.execution import SuiteResult
 
@@ -47,36 +52,42 @@ class PytestSubprocessRunner:
         output_dir.mkdir(parents=True, exist_ok=True)
         junit_path = (output_dir / JUNIT_FILE_NAME).resolve()
         junit_path.unlink(missing_ok=True)
-        start = time.perf_counter()
-        with tempfile.TemporaryDirectory(prefix="codeguard-run-") as tmp:
-            workspace = _prepare_workspace(Path(tmp), test_files, package_root)
-            try:
-                completed = subprocess.run(
-                    self._command(junit_path),
-                    cwd=workspace,
-                    env=_child_env(workspace / "package"),
-                    capture_output=True,
-                    text=True,
-                    timeout=self._timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired:
-                return SuiteResult(
-                    tests=(),
-                    exit_code=None,
-                    duration_seconds=time.perf_counter() - start,
-                    timed_out=True,
-                    detail=f"timeout after {self._timeout_seconds:g} s",
-                )
-        elapsed = time.perf_counter() - start
-        tests = parse_junit(junit_path) if junit_path.is_file() else ()
-        return SuiteResult(
-            tests=tests,
-            exit_code=completed.returncode,
-            duration_seconds=elapsed,
-            junit_path=junit_path if junit_path.is_file() else None,
-            detail="" if tests else _last_line(completed.stdout + completed.stderr),
+        guard = (
+            verify_sciref_integrity(package_root)
+            if (package_root / SCIREF_PACKAGE_NAME).is_dir()
+            else contextlib.nullcontext()
         )
+        with guard:
+            start = time.perf_counter()
+            with tempfile.TemporaryDirectory(prefix="codeguard-run-") as tmp:
+                workspace = _prepare_workspace(Path(tmp), test_files, package_root)
+                try:
+                    completed = subprocess.run(
+                        self._command(junit_path),
+                        cwd=workspace,
+                        env=_child_env(workspace / "package"),
+                        capture_output=True,
+                        text=True,
+                        timeout=self._timeout_seconds,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    return SuiteResult(
+                        tests=(),
+                        exit_code=None,
+                        duration_seconds=time.perf_counter() - start,
+                        timed_out=True,
+                        detail=f"timeout after {self._timeout_seconds:g} s",
+                    )
+            elapsed = time.perf_counter() - start
+            tests = parse_junit(junit_path) if junit_path.is_file() else ()
+            return SuiteResult(
+                tests=tests,
+                exit_code=completed.returncode,
+                duration_seconds=elapsed,
+                junit_path=junit_path if junit_path.is_file() else None,
+                detail="" if tests else _last_line(completed.stdout + completed.stderr),
+            )
 
     def _command(self, junit_path: Path) -> list[str]:
         return [

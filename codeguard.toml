@@ -5,3 +5,6 @@
 # Tiempo máximo de una ejecución completa de pytest (suite original o un mutante).
 # Si se supera, la ejecución se corta y se reporta como timeout, nunca como detección.
 timeout_seconds = 60
+
+# Tiempo máximo del subproceso de validación de importación por propuesta.
+import_timeout_seconds = 10
