@@ -126,7 +126,10 @@ def report_command(
         typer.echo(f"Error de reporte: {error}", err=True)
         raise typer.Exit(code=1) from error
 
-    typer.echo(f"Resumen generado (run_id={summary.run_id}) en {summary.summary_path}")
+    typer.echo(
+        f"Resumen generado (run_id={summary.run_id}) en {summary.summary_path} "
+        f"y {summary.summary_path.parent / 'results.json'}"
+    )
 
 
 def all_command(

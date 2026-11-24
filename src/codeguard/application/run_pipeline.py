@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 
+import yaml
+
 import codeguard
 from codeguard.adapters.execution import PytestSubprocessRunner
 from codeguard.adapters.execution.junit import parse_junit
@@ -31,11 +33,12 @@ from codeguard.adapters.mutation import (
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.static import scan_paths
 from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
+from codeguard.application.compute_metrics import ComputeMetrics
 from codeguard.application.generate_tests import GenerateTests, GenerationReport
 from codeguard.application.run_suite import RunSuite
 from codeguard.application.validate_proposals import ValidateProposals, ValidationReport
 from codeguard.application.validation_chain import ValidationChain
-from codeguard.domain import Finding, FunctionContract
+from codeguard.domain import Finding, FunctionContract, MutantStatus
 from codeguard.domain.execution import ExecutionOutcome, SuiteResult
 from codeguard.domain.ledger import LedgerSummary
 from codeguard.ports.generation import ProposalSource
@@ -80,8 +83,16 @@ class MutationReport:
         return sum(1 for item in self.outcomes if item.status == "SURVIVED")
 
     @property
+    def equivalent(self) -> int:
+        return sum(1 for item in self.outcomes if item.status == MutantStatus.EQUIVALENT.value)
+
+    @property
+    def invalid(self) -> int:
+        return sum(1 for item in self.outcomes if item.status == MutantStatus.INVALID.value)
+
+    @property
     def timed_out_count(self) -> int:
-        return sum(1 for item in self.outcomes if item.status == "TIMEOUT")
+        return sum(1 for item in self.outcomes if item.timed_out)
 
 
 @dataclass(frozen=True)
@@ -152,10 +163,13 @@ def run_mutation_stage(
         raise ValueError(f"reference package not found: {reference_dir / PACKAGE_NAME}")
 
     specs = load_catalog(catalog_path)
+    equivalent_ids = _load_equivalent_mutant_ids(catalog_path)
     runner = PytestSubprocessRunner(timeout_seconds)
     ledger = JsonlLedger()
     outcomes = tuple(
-        _evaluate_single_mutant(spec, run_dir, ledger_path, reference_dir, runner, ledger)
+        _evaluate_single_mutant(
+            spec, run_dir, ledger_path, reference_dir, runner, ledger, equivalent_ids
+        )
         for spec in specs
     )
     output_path = run_dir / MUTANTS_FILE_NAME
@@ -197,6 +211,7 @@ def build_summary_report(run_dir: Path) -> SummaryReport:
 
     summary_path = run_dir / SUMMARY_FILE_NAME
     _write_json(summary_path, payload)
+    ComputeMetrics().execute(run_dir)
     return SummaryReport(
         run_id=run_dir.name,
         summary_path=summary_path,
@@ -265,6 +280,7 @@ class RunPipeline:
         summary = build_summary_report(run_dir)
         durations["report"] = time.perf_counter() - report_start
         write_run_config(options, run_dir, durations)
+        ComputeMetrics().execute(run_dir)
 
         return PipelineResult(
             run_id=options.run_id,
@@ -334,6 +350,17 @@ def _validation_chain(
     )
 
 
+def _load_equivalent_mutant_ids(catalog_path: Path) -> frozenset[str]:
+    raw: object = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("mutants"), list):
+        return frozenset()
+    return frozenset(
+        str(entry["id"])
+        for entry in raw["mutants"]
+        if isinstance(entry, dict) and entry.get("status") == "equivalent" and "id" in entry
+    )
+
+
 def _evaluate_single_mutant(
     spec: MutantSpec,
     run_dir: Path,
@@ -341,6 +368,7 @@ def _evaluate_single_mutant(
     reference_dir: Path,
     runner: PytestSubprocessRunner,
     ledger: JsonlLedger,
+    equivalent_ids: frozenset[str],
 ) -> MutantOutcome:
     with mutant_workspace(spec, reference_dir) as mutated_root:
         exec_report = RunSuite(runner, ledger).execute(
@@ -349,16 +377,20 @@ def _evaluate_single_mutant(
             package_root=mutated_root,
             output_dir=run_dir / "mutants" / spec.id,
         )
-    return _classify_mutant_outcome(spec, exec_report.result)
+    return _classify_mutant_outcome(spec, exec_report.result, equivalent_ids)
 
 
-def _classify_mutant_outcome(spec: MutantSpec, result: SuiteResult) -> MutantOutcome:
-    if result.timed_out:
-        status = "TIMEOUT"
+def _classify_mutant_outcome(
+    spec: MutantSpec, result: SuiteResult, equivalent_ids: frozenset[str]
+) -> MutantOutcome:
+    if spec.id in equivalent_ids:
+        status = MutantStatus.EQUIVALENT.value
+    elif result.timed_out or (result.total == 0 and not result.is_green):
+        status = MutantStatus.INVALID.value
     elif not result.is_green:
-        status = "KILLED"
+        status = MutantStatus.KILLED.value
     else:
-        status = "SURVIVED"
+        status = MutantStatus.SURVIVED.value
     return MutantOutcome(
         mutant_id=spec.id,
         function=spec.function,
@@ -453,14 +485,20 @@ def _attach_mutants_summary(payload: dict[str, object], path: Path) -> None:
         survived = sum(
             1 for item in raw if isinstance(item, dict) and item.get("status") == "SURVIVED"
         )
-        timed_out = sum(
-            1 for item in raw if isinstance(item, dict) and item.get("status") == "TIMEOUT"
+        equivalent = sum(
+            1 for item in raw if isinstance(item, dict) and item.get("status") == "EQUIVALENT"
+        )
+        invalid = sum(
+            1
+            for item in raw
+            if isinstance(item, dict) and item.get("status") in {"INVALID", "TIMEOUT"}
         )
         payload["mutation"] = {
             "total": len(raw),
             "killed": killed,
             "survived": survived,
-            "timed_out": timed_out,
+            "equivalent": equivalent,
+            "invalid": invalid,
         }
 
 
