@@ -147,3 +147,57 @@ def test_invalid_inputs_are_refused(tmp_path: Path) -> None:
         runner.run([a], tmp_path / "nowhere", tmp_path)
     with pytest.raises(ValueError, match="timeout_seconds"):
         PytestSubprocessRunner(timeout_seconds=0)
+
+
+def test_coverage_measures_only_the_package_with_branches(tmp_path: Path) -> None:
+    files = [_write(tmp_path / "p", "test_ok.py", PASSING)]
+    out = tmp_path / "out"
+
+    result = PytestSubprocessRunner(coverage_package="sciref").run(files, REFERENCE_DIR, out)
+
+    assert result.coverage is not None
+    paths = [module.path for module in result.coverage.modules]
+    assert paths == [
+        "sciref/__init__.py",
+        "sciref/numeric.py",
+        "sciref/signals.py",
+        "sciref/validation.py",
+    ]  # the test files themselves are never measured
+    numeric = result.coverage.modules[1]
+    assert 0 < numeric.line_pct < 100  # one clamp case covers part of numeric.py
+    assert 0 < numeric.branch_pct < 100
+    assert numeric.missing_lines
+    assert (out / "coverage.json").is_file()
+    assert (out / "coverage_html" / "index.html").is_file()
+
+
+def test_no_coverage_unless_requested(tmp_path: Path) -> None:
+    files = [_write(tmp_path / "p", "test_ok.py", PASSING)]
+
+    result = PytestSubprocessRunner().run(files, REFERENCE_DIR, tmp_path / "out")
+
+    assert result.coverage is None
+    assert not (tmp_path / "out" / "coverage.json").exists()
+
+
+def test_stale_coverage_reports_are_removed(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    _write(out, "coverage.json", '{"files": {}}')
+    _write(out / "coverage_html", "stale.html", "old")
+    files = [_write(tmp_path / "p", "test_ok.py", PASSING)]
+
+    result = PytestSubprocessRunner(coverage_package="sciref").run(files, REFERENCE_DIR, out)
+
+    assert result.coverage is not None and result.coverage.modules
+    assert not (out / "coverage_html" / "stale.html").exists()
+
+
+@pytest.mark.parametrize("reserved", ["tests", "pytest.ini", ".coveragerc"])
+def test_package_root_cannot_use_workspace_names(tmp_path: Path, reserved: str) -> None:
+    root = tmp_path / "root"
+    shutil.copytree(REFERENCE_DIR / "sciref", root / "sciref")
+    (root / reserved).mkdir() if reserved == "tests" else _write(root, reserved, "")
+    files = [_write(tmp_path / "p", "test_ok.py", PASSING)]
+
+    with pytest.raises(ValueError, match=f"must not contain: {reserved}"):
+        PytestSubprocessRunner().run(files, root, tmp_path / "out")

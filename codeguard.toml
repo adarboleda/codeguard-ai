@@ -8,3 +8,9 @@ timeout_seconds = 60
 
 # Tiempo máximo del subproceso de validación de importación por propuesta.
 import_timeout_seconds = 10
+
+[coverage]
+# Metas del equipo (plan §1), por encima del mínimo de la guía (70 % / 70 %).
+# Se mide solo el paquete bajo estudio (reference/sciref), nunca src/codeguard.
+min_line_pct = 90
+min_branch_pct = 85

@@ -206,6 +206,21 @@ def test_cli_all_reproduces_full_pipeline_and_writes_run_config(tmp_path: Path) 
     }
     assert results["timings_seconds"]["total"] > 0
 
+    # CG-17 (PA 05): the baseline measures line and branch coverage of sciref only.
+    assert results["coverage"]["available"] is True
+    assert results["coverage"]["line_coverage_pct"] >= 90.0
+    assert results["coverage"]["branch_coverage_pct"] >= 85.0
+    coverage = json.loads((run_dir / "coverage.json").read_text(encoding="utf-8"))
+    assert {name.replace("\\", "/") for name in coverage["files"]} == {
+        "sciref/__init__.py",
+        "sciref/numeric.py",
+        "sciref/signals.py",
+        "sciref/validation.py",
+    }
+    assert (run_dir / "coverage_html" / "index.html").is_file()
+    assert not (run_dir / "mutants" / "M01" / "coverage.json").exists()  # never on mutants
+    assert "cobertura 100.0 % líneas / 100.0 % ramas" in result.output
+
 
 def test_makefile_exposes_all_target() -> None:
     makefile = REPO_ROOT / "Makefile"

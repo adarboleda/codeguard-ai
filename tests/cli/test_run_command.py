@@ -7,7 +7,8 @@ from typer.testing import CliRunner, Result
 
 from codeguard.application.run_suite import ExecutionReport
 from codeguard.cli.main import app
-from codeguard.cli.run_command import _summary_lines
+from codeguard.cli.run_command import _coverage_lines, _line_ranges, _summary_lines
+from codeguard.domain.coverage import CoverageReport, CoverageTargets, ModuleCoverage
 from codeguard.domain.execution import SuiteResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +67,42 @@ def test_run_executes_only_the_valid_proposals(validated_run: Path) -> None:
     assert "test_seed_" not in junit.read_text(encoding="utf-8")  # rejected seeds never run
 
 
+def test_run_reports_coverage_per_module_pa05(validated_run: Path) -> None:
+    result = _run(validated_run, "pa04")
+
+    assert result.exit_code == 0, result.output
+    for module in ("__init__", "numeric", "signals", "validation"):
+        assert f"sciref/{module}.py" in result.output
+    assert "TOTAL                     100.0 %   100.0 %" in result.output
+    assert "Meta: ≥ 90 % líneas y ≥ 85 % ramas → ✓ cumplida" in result.output
+    assert (validated_run / "pa04" / "coverage.json").is_file()
+    assert (validated_run / "pa04" / "coverage_html" / "index.html").is_file()
+
+
+def test_coverage_below_target_is_flagged() -> None:
+    coverage = CoverageReport(
+        (ModuleCoverage("sciref/numeric.py", 30, 24, 18, 9, (12, 13, 14, 20)),)
+    )
+
+    lines = _coverage_lines(coverage, CoverageTargets(90, 85), Path("out/x"))
+
+    assert "  sciref/numeric.py          80.0 %    50.0 %   12-14, 20" in lines
+    assert lines[-2] == "  Meta: ≥ 90 % líneas y ≥ 85 % ramas → ✗ NO cumplida"
+
+
+@pytest.mark.parametrize(
+    ("numbers", "text"),
+    [
+        ((), ""),
+        ((7,), "7"),
+        ((3, 4, 5, 9, 11, 12), "3-5, 9, 11-12"),
+        (tuple(range(1, 100, 2)), "1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21..."),
+    ],
+)
+def test_missing_lines_are_compressed_into_ranges(numbers: tuple[int, ...], text: str) -> None:
+    assert _line_ranges(numbers) == text
+
+
 def test_failing_suite_exits_1_and_lists_failures(validated_run: Path) -> None:
     proposal = validated_run / "pa04" / "proposals" / "test_clamp_cl_01.py"
     code = proposal.read_text(encoding="utf-8")
@@ -87,7 +124,7 @@ def test_many_failures_are_truncated(validated_run: Path) -> None:
 
     assert result.exit_code == 1
     assert "35 aprobadas, 11 fallidas" in result.output
-    assert result.output.count("✗ ") == 10
+    assert result.output.count("  ✗ tests/") == 10
     assert "... y 1 más (ver junit.xml)" in result.output
 
 
