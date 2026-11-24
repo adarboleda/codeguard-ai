@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codeguard.adapters.execution import DEFAULT_TIMEOUT_SECONDS
+from codeguard.adapters.validation.import_rule import (
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
+)
 from codeguard.domain.errors import CodeGuardError
 
 DEFAULT_CONFIG_FILE = Path("codeguard.toml")
@@ -23,6 +26,7 @@ class RunnerSettings:
     """``[runner]`` section."""
 
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -48,10 +52,18 @@ def load_settings(path: Path = DEFAULT_CONFIG_FILE, *, required: bool = False) -
 def _runner_settings(section: object, path: Path) -> RunnerSettings:
     if not isinstance(section, dict):
         raise ConfigError(f"{path}: [runner] must be a table")
-    unknown = sorted(set(section) - {"timeout_seconds"})
+    unknown = sorted(set(section) - {"timeout_seconds", "import_timeout_seconds"})
     if unknown:
         raise ConfigError(f"{path}: unknown keys in [runner]: {', '.join(unknown)}")
-    timeout = section.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
-    if isinstance(timeout, bool) or not isinstance(timeout, int | float) or timeout <= 0:
-        raise ConfigError(f"{path}: [runner] timeout_seconds must be a positive number")
-    return RunnerSettings(timeout_seconds=float(timeout))
+    timeout = _positive_float(section, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS, path)
+    import_timeout = _positive_float(
+        section, "import_timeout_seconds", DEFAULT_IMPORT_TIMEOUT_SECONDS, path
+    )
+    return RunnerSettings(timeout_seconds=timeout, import_timeout_seconds=import_timeout)
+
+
+def _positive_float(section: dict[object, object], key: str, default: float, path: Path) -> float:
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ConfigError(f"{path}: [runner] {key} must be a positive number")
+    return float(value)

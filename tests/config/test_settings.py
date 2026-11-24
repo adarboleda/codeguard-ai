@@ -35,6 +35,13 @@ def test_timeout_is_read(tmp_path: Path, value: str, expected: float) -> None:
     assert load_settings(path).runner.timeout_seconds == expected
 
 
+@pytest.mark.parametrize(("value", "expected"), [("5", 5.0), ("1.5", 1.5)])
+def test_import_timeout_is_read(tmp_path: Path, value: str, expected: float) -> None:
+    path = _config(tmp_path, f"[runner]\nimport_timeout_seconds = {value}\n")
+
+    assert load_settings(path).runner.import_timeout_seconds == expected
+
+
 def test_empty_file_gives_defaults(tmp_path: Path) -> None:
     assert load_settings(_config(tmp_path, "")) == Settings()
 
@@ -46,6 +53,10 @@ def test_empty_file_gives_defaults(tmp_path: Path) -> None:
         ("[runner]\ntimeout_seconds = -1\n", "positive number"),
         ("[runner]\ntimeout_seconds = true\n", "positive number"),
         ('[runner]\ntimeout_seconds = "60"\n', "positive number"),
+        ("[runner]\nimport_timeout_seconds = 0\n", "positive number"),
+        ("[runner]\nimport_timeout_seconds = -1\n", "positive number"),
+        ("[runner]\nimport_timeout_seconds = true\n", "positive number"),
+        ('[runner]\nimport_timeout_seconds = "10"\n', "positive number"),
         ("[runner]\ntimeout_secons = 60\n", "unknown keys in \\[runner\\]: timeout_secons"),
         ("runner = 5\n", "must be a table"),
         ("[runner\n", "cannot read"),

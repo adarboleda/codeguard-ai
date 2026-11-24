@@ -4,10 +4,12 @@ Only proposals marked ``valid`` in the ledger are executed: rejected proposals
 (e.g. the defective seeds) and any stray file in the proposals folder are never run.
 """
 
+import contextlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from codeguard.adapters.execution.integrity import SCIREF_PACKAGE_NAME, verify_sciref_integrity
 from codeguard.domain.execution import SuiteResult
 from codeguard.domain.ledger import LedgerEntry, ProposalStatus
 from codeguard.ports.execution import SuiteRunner
@@ -34,7 +36,13 @@ class RunSuite:
     ) -> ExecutionReport:
         """Run every valid proposal against ``package_root``; write results to ``output_dir``."""
         test_files = valid_test_files(self._ledger.read(ledger_path), proposals_dir)
-        result = self._runner.run(test_files, package_root, output_dir)
+        guard = (
+            verify_sciref_integrity(package_root)
+            if (package_root / SCIREF_PACKAGE_NAME).is_dir()
+            else contextlib.nullcontext()
+        )
+        with guard:
+            result = self._runner.run(test_files, package_root, output_dir)
         return ExecutionReport(result=result, test_files=test_files)
 
 

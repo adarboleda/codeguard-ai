@@ -30,12 +30,16 @@ def _resolve_run_id(run_id: str | None) -> str:
     return cleaned
 
 
-def _resolve_timeout(config: Path | None, timeout: float | None) -> float:
+def _resolve_timeouts(config: Path | None, timeout: float | None) -> tuple[float, float]:
     settings = load_settings(config or DEFAULT_CONFIG_FILE, required=config is not None)
     resolved = settings.runner.timeout_seconds if timeout is None else timeout
     if resolved <= 0:
         raise ValueError("timeout must be positive")
-    return resolved
+    return resolved, settings.runner.import_timeout_seconds
+
+
+def _resolve_timeout(config: Path | None, timeout: float | None) -> float:
+    return _resolve_timeouts(config, timeout)[0]
 
 
 def mutate_command(
@@ -184,7 +188,7 @@ def all_command(
     """Reproduce el pipeline completo (generate->validate->run->mutate->scan->report)."""
     try:
         resolved_run_id = _resolve_run_id(run_id)
-        timeout_seconds = _resolve_timeout(config, timeout)
+        timeout_seconds, import_timeout_seconds = _resolve_timeouts(config, timeout)
         options = PipelineOptions(
             run_id=resolved_run_id,
             specs_path=specs,
@@ -196,6 +200,7 @@ def all_command(
             out_dir=out,
             timeout_seconds=timeout_seconds,
             seed=seed,
+            import_timeout_seconds=import_timeout_seconds,
         )
         result = RunPipeline().execute(options)
     except (CodeGuardError, ValueError) as error:
