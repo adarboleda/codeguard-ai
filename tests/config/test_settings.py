@@ -65,3 +65,39 @@ def test_empty_file_gives_defaults(tmp_path: Path) -> None:
 def test_invalid_config_is_rejected(tmp_path: Path, text: str, message: str) -> None:
     with pytest.raises(ConfigError, match=message):
         load_settings(_config(tmp_path, text))
+
+
+def test_coverage_targets_default_to_the_team_goals(tmp_path: Path) -> None:
+    targets = load_settings(tmp_path / "missing.toml").coverage
+
+    assert (targets.min_line_pct, targets.min_branch_pct) == (90.0, 85.0)
+
+
+def test_repository_coverage_targets() -> None:
+    targets = load_settings(REPO_CONFIG, required=True).coverage
+
+    assert (targets.min_line_pct, targets.min_branch_pct) == (90.0, 85.0)
+
+
+def test_coverage_targets_are_read(tmp_path: Path) -> None:
+    path = _config(tmp_path, "[coverage]\nmin_line_pct = 70\nmin_branch_pct = 70.5\n")
+
+    targets = load_settings(path).coverage
+
+    assert (targets.min_line_pct, targets.min_branch_pct) == (70.0, 70.5)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("[coverage]\nmin_line_pct = 101\n", "between 0 and 100"),
+        ("[coverage]\nmin_branch_pct = -5\n", "between 0 and 100"),
+        ("[coverage]\nmin_line_pct = true\n", "between 0 and 100"),
+        ('[coverage]\nmin_line_pct = "90"\n', "between 0 and 100"),
+        ("[coverage]\nmin_lines = 90\n", r"unknown keys in \[coverage\]: min_lines"),
+        ("coverage = 90\n", r"\[coverage\] must be a table"),
+    ],
+)
+def test_invalid_coverage_targets_are_rejected(tmp_path: Path, text: str, message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_settings(_config(tmp_path, text))

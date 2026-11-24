@@ -1,4 +1,4 @@
-"""``codeguard run``: execute the validated suite of a run with pytest (CG-16, PA 04)."""
+"""``codeguard run``: run the validated suite with coverage of sciref (CG-16 PA 04, CG-17 PA 05)."""
 
 from pathlib import Path
 from typing import Annotated
@@ -6,13 +6,20 @@ from typing import Annotated
 import typer
 
 from codeguard.adapters.config import DEFAULT_CONFIG_FILE, load_settings
-from codeguard.adapters.execution import PytestSubprocessRunner
+from codeguard.adapters.execution import (
+    COVERAGE_HTML_DIR_NAME,
+    COVERAGE_JSON_FILE_NAME,
+    SCIREF_PACKAGE_NAME,
+    PytestSubprocessRunner,
+)
 from codeguard.adapters.ledger import LEDGER_FILE_NAME, JsonlLedger
 from codeguard.application.run_suite import ExecutionReport, RunSuite
+from codeguard.domain.coverage import CoverageReport, CoverageTargets
 from codeguard.domain.errors import CodeGuardError
 from codeguard.domain.execution import SuiteResult
 
 _MAX_FAILURES_SHOWN = 10
+_MAX_MISSING_CHARS = 40
 
 
 def run_tests(
@@ -35,12 +42,12 @@ def run_tests(
         typer.Option("--timeout", help="Segundos máximos de pytest; sustituye a codeguard.toml."),
     ] = None,
 ) -> None:
-    """Ejecuta con pytest las propuestas válidas y guarda out/<run_id>/junit.xml."""
+    """Ejecuta las propuestas válidas con cobertura de sciref (junit.xml, coverage.json/html)."""
     try:
         run_dir = _run_dir(out, run_id)
         settings = load_settings(config or DEFAULT_CONFIG_FILE, required=config is not None)
         timeout_seconds = settings.runner.timeout_seconds if timeout is None else timeout
-        runner = PytestSubprocessRunner(timeout_seconds)
+        runner = PytestSubprocessRunner(timeout_seconds, coverage_package=SCIREF_PACKAGE_NAME)
         report = RunSuite(runner, JsonlLedger()).execute(
             ledger_path=run_dir / LEDGER_FILE_NAME,
             proposals_dir=run_dir / "proposals",
@@ -52,6 +59,9 @@ def run_tests(
         raise typer.Exit(code=1) from error
     for line in _summary_lines(report):
         typer.echo(line)
+    if report.result.coverage is not None:
+        for line in _coverage_lines(report.result.coverage, settings.coverage, run_dir):
+            typer.echo(line)
     if not report.result.is_green:
         raise typer.Exit(code=1)
 
@@ -87,3 +97,38 @@ def _failure_lines(result: SuiteResult) -> list[str]:
     if len(failing) > _MAX_FAILURES_SHOWN:
         lines.append(f"  ... y {len(failing) - _MAX_FAILURES_SHOWN} más (ver junit.xml)")
     return lines
+
+
+def _coverage_lines(coverage: CoverageReport, targets: CoverageTargets, run_dir: Path) -> list[str]:
+    """Per-module table of line and branch coverage, then the total against the targets."""
+    lines = [
+        "Cobertura de sciref (solo el paquete bajo estudio):",
+        f"  {'módulo':<24}{'líneas':>9}{'ramas':>10}   líneas sin cubrir",
+    ]
+    for module in coverage.modules:
+        row = f"  {module.path:<24}{module.line_pct:>7.1f} %{module.branch_pct:>8.1f} %"
+        lines.append(f"{row}   {_line_ranges(module.missing_lines)}".rstrip())
+    lines.append(f"  {'TOTAL':<24}{coverage.line_pct:>7.1f} %{coverage.branch_pct:>8.1f} %")
+    verdict = "✓ cumplida" if coverage.meets(targets) else "✗ NO cumplida"
+    lines.append(
+        f"  Meta: ≥ {targets.min_line_pct:g} % líneas y ≥ {targets.min_branch_pct:g} % ramas "
+        f"→ {verdict}"
+    )
+    html_index = run_dir / COVERAGE_HTML_DIR_NAME / "index.html"
+    lines.append(f"  Informe: {run_dir / COVERAGE_JSON_FILE_NAME} · {html_index}")
+    return lines
+
+
+def _line_ranges(numbers: tuple[int, ...]) -> str:
+    """``(3, 4, 5, 9)`` -> ``"3-5, 9"``, shortened with ``...`` if too long."""
+    ranges: list[str] = []
+    start = previous = None
+    for number in [*numbers, None]:
+        if number is not None and previous is not None and number == previous + 1:
+            previous = number
+            continue
+        if start is not None:
+            ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = number
+    text = ", ".join(ranges)
+    return text if len(text) <= _MAX_MISSING_CHARS else f"{text[: _MAX_MISSING_CHARS - 3]}..."

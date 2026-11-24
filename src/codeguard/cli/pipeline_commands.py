@@ -211,7 +211,14 @@ def all_command(
         f"Pipeline completo (run_id={result.run_id}): "
         f"{result.proposals_valid}/{result.proposals_total} válidas | "
         f"{result.baseline_passed} pruebas base OK | "
+        f"{_coverage_text(result.line_coverage_pct, result.branch_coverage_pct)} | "
         f"{result.mutants_killed}/{result.mutants_total} mutantes detectados | "
         f"{result.findings_total} hallazgos estáticos | "
         f"run_config: {result.run_config_path}"
     )
+
+
+def _coverage_text(line_pct: float | None, branch_pct: float | None) -> str:
+    if line_pct is None or branch_pct is None:
+        return "cobertura no disponible"
+    return f"cobertura {line_pct:.1f} % líneas / {branch_pct:.1f} % ramas"

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from .coverage import CoverageReport
+
 
 class ExecutionOutcome(StrEnum):
     """Outcome of one executed test, as reported in the JUnit XML."""
@@ -41,6 +43,7 @@ class SuiteResult:
     timed_out: bool = False
     junit_path: Path | None = None
     detail: str = ""
+    coverage: CoverageReport | None = None  # only when coverage was measured (CG-17)
 
     def __post_init__(self) -> None:
         if self.timed_out != (self.exit_code is None):

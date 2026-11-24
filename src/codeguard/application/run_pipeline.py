@@ -151,6 +151,8 @@ class PipelineResult:
     mutants_total: int
     findings_total: int
     phase_durations_seconds: Mapping[str, float]
+    line_coverage_pct: float | None = None  # baseline coverage of sciref (CG-17)
+    branch_coverage_pct: float | None = None
 
 
 def run_mutation_stage(
@@ -309,6 +311,8 @@ class RunPipeline:
             mutants_total=mut_report.total,
             findings_total=len(scan_report.findings),
             phase_durations_seconds=MappingProxyType(dict(durations)),
+            line_coverage_pct=baseline.coverage.line_pct if baseline.coverage else None,
+            branch_coverage_pct=baseline.coverage.branch_pct if baseline.coverage else None,
         )
 
     def _stage_generate(self, options: PipelineOptions, run_dir: Path) -> GenerationReport:
@@ -331,7 +335,8 @@ class RunPipeline:
         return ValidateProposals(chain, JsonlLedger()).execute(generation.proposals, run_dir)
 
     def _stage_run(self, options: PipelineOptions, run_dir: Path) -> SuiteResult:
-        runner = PytestSubprocessRunner(options.timeout_seconds)
+        # Coverage of sciref is measured on the baseline only, never on mutants (CG-17).
+        runner = PytestSubprocessRunner(options.timeout_seconds, coverage_package=PACKAGE_NAME)
         report = RunSuite(runner, JsonlLedger()).execute(
             ledger_path=run_dir / LEDGER_FILE_NAME,
             proposals_dir=run_dir / "proposals",
