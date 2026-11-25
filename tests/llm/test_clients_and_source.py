@@ -247,3 +247,13 @@ def test_replay_reproduces_the_same_proposals_without_network(tmp_path: Path) ->
 def test_invalid_maximum() -> None:
     with pytest.raises(ValueError, match="max_tests_per_function"):
         GroqProposalSource(_ScriptedClient(), Path("x"), REFERENCE_DIR, max_tests_per_function=0)
+
+
+def test_real_sdk_client_is_built_without_any_request() -> None:
+    """The default factory builds the real ``openai`` client; nothing is sent until complete()."""
+    client = OpenAICompatibleClient(api_key="test-key-not-real", model="m-1", timeout_seconds=5)
+
+    sdk = client._client  # the real openai.OpenAI instance
+    assert str(sdk.base_url).rstrip("/") == "https://api.groq.com/openai/v1"
+    assert sdk.max_retries == 2
+    assert client.model == "m-1"
