@@ -9,7 +9,11 @@ from typing import Annotated
 import typer
 
 from codeguard.adapters.config import DEFAULT_CONFIG_FILE, load_settings
-from codeguard.adapters.execution import SCIREF_PACKAGE_NAME, verify_sciref_integrity
+from codeguard.adapters.execution import (
+    DEFAULT_TIMEOUT_SECONDS,
+    SCIREF_PACKAGE_NAME,
+    verify_sciref_integrity,
+)
 from codeguard.adapters.generation import (
     CompositeProposalSource,
     DefectiveSeedProposalSource,
@@ -19,7 +23,7 @@ from codeguard.adapters.generation import (
 )
 from codeguard.adapters.ledger import JsonlLedger
 from codeguard.adapters.specs import YamlSpecRepository
-from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
+from codeguard.adapters.validation.default_chain import default_validation_chain
 from codeguard.adapters.validation.import_rule import (
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
 )
@@ -27,6 +31,7 @@ from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.application.validate_proposals import ValidateProposals
 from codeguard.application.validation_chain import ValidationChain
+from codeguard.cli.llm_source import SourceOption, build_groq_source, count_generation_errors
 from codeguard.cli.pipeline_commands import (
     all_command,
     mutate_command,
@@ -171,18 +176,38 @@ def generate_tests(
             help="Incluye las semillas defectuosas en el denominador generado.",
         ),
     ] = True,
+    source_option: Annotated[
+        SourceOption,
+        typer.Option(
+            "--source",
+            help="Origen de las propuestas: template (por defecto) o groq (extensión LLM).",
+        ),
+    ] = SourceOption.TEMPLATE,
+    replay: Annotated[
+        str | None,
+        typer.Option(
+            "--replay",
+            help="Con --source groq: reutiliza out/<run_id>/llm/ sin red ni clave.",
+        ),
+    ] = None,
 ) -> None:
-    """Genera pruebas pytest desde plantillas Jinja2 en out/<run_id>/proposals/."""
+    """Genera pruebas pytest (plantillas Jinja2 o Groq) en out/<run_id>/proposals/."""
     try:
         resolved_run_id = _resolve_run_id(run_id)
         repository = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir])
-        source = _build_proposal_source(seeds, include_seeds)
+        if replay is not None and source_option is not SourceOption.GROQ:
+            raise ValueError("--replay only applies to --source groq")
+        source: ProposalSource = (
+            build_groq_source(out, resolved_run_id, reference_dir, replay)
+            if source_option is SourceOption.GROQ
+            else _build_proposal_source(seeds, include_seeds)
+        )
         writer = FileProposalWriter()
         report = GenerateTests(repository, source, writer).execute(out / resolved_run_id)
     except SpecError as error:
         typer.echo(f"Error de especificación: {error}", err=True)
         raise typer.Exit(code=1) from error
-    except ValueError as error:
+    except (CodeGuardError, ValueError) as error:
         typer.echo(f"Error de generación: {error}", err=True)
         raise typer.Exit(code=1) from error
 
@@ -190,20 +215,23 @@ def generate_tests(
         f"Propuestas generadas: {len(report.proposals)} archivos "
         f"(run_id={resolved_run_id}) en {report.proposals_dir}"
     )
+    if source_option is SourceOption.GROQ:
+        errors = count_generation_errors([proposal.code for proposal in report.proposals])
+        mode = f"replay de {replay}" if replay else "API de Groq"
+        typer.echo(
+            f"Fuente groq ({mode}): respuestas en {out / resolved_run_id / 'llm'} | "
+            f"llamadas fallidas: {errors}"
+        )
 
 
 def _build_validation_chain(
     contracts: tuple[FunctionContract, ...],
     reference_dir: Path,
     import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS,
+    runner_timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> ValidationChain:
-    return ValidationChain(
-        [
-            SyntaxRule(),
-            ImportRule(search_paths=[reference_dir], timeout_seconds=import_timeout_seconds),
-            TargetRule(contracts),
-            AssertionRule(),
-        ]
+    return default_validation_chain(
+        contracts, reference_dir, import_timeout_seconds, runner_timeout_seconds
     )
 
 
@@ -250,7 +278,9 @@ def validate_proposals(
         with guard:
             contracts = YamlSpecRepository(specs_path=specs, search_paths=[reference_dir]).load()
             proposals = FileProposalReader().read(run_dir / "proposals")
-            chain = _build_validation_chain(contracts, reference_dir, import_timeout)
+            chain = _build_validation_chain(
+                contracts, reference_dir, import_timeout, settings.runner.timeout_seconds
+            )
             report = ValidateProposals(chain, JsonlLedger()).execute(proposals, run_dir)
     except SpecError as error:
         typer.echo(f"Error de especificación: {error}", err=True)

@@ -14,3 +14,12 @@ import_timeout_seconds = 10
 # Se mide solo el paquete bajo estudio (reference/sciref), nunca src/codeguard.
 min_line_pct = 90
 min_branch_pct = 85
+
+[llm]
+# Extensión opcional con Groq (CG-31): solo se usa con `codeguard generate --source groq`.
+# La clave (GROQ_API_KEY) y el modelo (CODEGUARD_LLM_MODEL) van en .env, nunca aquí.
+base_url = "https://api.groq.com/openai/v1"
+temperature = 0            # respuestas lo más deterministas posible
+timeout_seconds = 60       # por llamada
+max_retries = 2            # reintentos del SDK ante errores transitorios
+max_tests_per_function = 8 # 1 llamada por función; como mucho 8 pruebas por respuesta

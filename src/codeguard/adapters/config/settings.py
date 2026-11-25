@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codeguard.adapters.execution import DEFAULT_TIMEOUT_SECONDS
+from codeguard.adapters.llm import DEFAULT_MAX_TESTS_PER_FUNCTION, GROQ_BASE_URL
 from codeguard.adapters.validation.import_rule import (
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
 )
@@ -35,6 +36,21 @@ class RunnerSettings:
 
 
 @dataclass(frozen=True)
+class LlmSettings:
+    """``[llm]`` section: limits of the optional Groq extension (plan, section 2.4).
+
+    The API key and the model id are not here: they come from ``.env``
+    (``GROQ_API_KEY``, ``CODEGUARD_LLM_MODEL``) so they never reach the repository.
+    """
+
+    base_url: str = GROQ_BASE_URL
+    temperature: float = 0.0
+    timeout_seconds: float = 60.0
+    max_retries: int = 2
+    max_tests_per_function: int = DEFAULT_MAX_TESTS_PER_FUNCTION
+
+
+@dataclass(frozen=True)
 class Settings:
     """All CodeGuard settings."""
 
@@ -42,6 +58,7 @@ class Settings:
     coverage: CoverageTargets = field(
         default_factory=lambda: CoverageTargets(DEFAULT_MIN_LINE_PCT, DEFAULT_MIN_BRANCH_PCT)
     )
+    llm: LlmSettings = field(default_factory=LlmSettings)
 
 
 def load_settings(path: Path = DEFAULT_CONFIG_FILE, *, required: bool = False) -> Settings:
@@ -57,6 +74,7 @@ def load_settings(path: Path = DEFAULT_CONFIG_FILE, *, required: bool = False) -
     return Settings(
         runner=_runner_settings(data.get("runner", {}), path),
         coverage=_coverage_targets(data.get("coverage", {}), path),
+        llm=_llm_settings(data.get("llm", {}), path),
     )
 
 
@@ -96,4 +114,58 @@ def _positive_float(section: dict[object, object], key: str, default: float, pat
     value = section.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         raise ConfigError(f"{path}: [runner] {key} must be a positive number")
+    return float(value)
+
+
+_LLM_KEYS = {"base_url", "temperature", "timeout_seconds", "max_retries", "max_tests_per_function"}
+
+
+def _llm_settings(section: object, path: Path) -> LlmSettings:
+    if not isinstance(section, dict):
+        raise ConfigError(f"{path}: [llm] must be a table")
+    unknown = sorted(set(section) - _LLM_KEYS)
+    if unknown:
+        raise ConfigError(f"{path}: unknown keys in [llm]: {', '.join(unknown)}")
+    defaults = LlmSettings()
+    base_url = section.get("base_url", defaults.base_url)
+    if not isinstance(base_url, str) or not base_url.startswith("https://"):
+        raise ConfigError(f"{path}: [llm] base_url must be an https:// URL")
+    return LlmSettings(
+        base_url=base_url,
+        temperature=_llm_number(section, "temperature", defaults.temperature, 0.0, 2.0, path),
+        timeout_seconds=_llm_number(
+            section, "timeout_seconds", defaults.timeout_seconds, 1, 600, path
+        ),
+        max_retries=int(
+            _llm_number(section, "max_retries", defaults.max_retries, 0, 5, path, integer=True)
+        ),
+        max_tests_per_function=int(
+            _llm_number(
+                section,
+                "max_tests_per_function",
+                defaults.max_tests_per_function,
+                1,
+                20,
+                path,
+                integer=True,
+            )
+        ),
+    )
+
+
+def _llm_number(
+    section: dict[object, object],
+    key: str,
+    default: float,
+    low: float,
+    high: float,
+    path: Path,
+    *,
+    integer: bool = False,
+) -> float:
+    value = section.get(key, default)
+    allowed = int if integer else int | float
+    if isinstance(value, bool) or not isinstance(value, allowed) or not low <= value <= high:
+        kind = "an integer" if integer else "a number"
+        raise ConfigError(f"{path}: [llm] {key} must be {kind} between {low:g} and {high:g}")
     return float(value)

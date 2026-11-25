@@ -14,6 +14,9 @@ import yaml
 
 import codeguard
 from codeguard.adapters.execution import (
+    DEFAULT_TIMEOUT_SECONDS as DEFAULT_RUNNER_TIMEOUT_SECONDS,
+)
+from codeguard.adapters.execution import (
     PytestSubprocessRunner,
     compute_sciref_snapshot,
     verify_sciref_integrity,
@@ -34,7 +37,7 @@ from codeguard.adapters.mutation import (
 )
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.static import scan_paths
-from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
+from codeguard.adapters.validation.default_chain import default_validation_chain
 from codeguard.adapters.validation.import_rule import (
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_IMPORT_TIMEOUT_SECONDS,
 )
@@ -331,7 +334,12 @@ class RunPipeline:
         contracts = YamlSpecRepository(
             specs_path=options.specs_path, search_paths=[options.reference_dir]
         ).load()
-        chain = _validation_chain(contracts, options.reference_dir, options.import_timeout_seconds)
+        chain = _validation_chain(
+            contracts,
+            options.reference_dir,
+            options.import_timeout_seconds,
+            options.timeout_seconds,
+        )
         return ValidateProposals(chain, JsonlLedger()).execute(generation.proposals, run_dir)
 
     def _stage_run(self, options: PipelineOptions, run_dir: Path) -> SuiteResult:
@@ -358,14 +366,10 @@ def _validation_chain(
     contracts: tuple[FunctionContract, ...],
     reference_dir: Path,
     import_timeout_seconds: float = DEFAULT_IMPORT_TIMEOUT_SECONDS,
+    runner_timeout_seconds: float = DEFAULT_RUNNER_TIMEOUT_SECONDS,
 ) -> ValidationChain:
-    return ValidationChain(
-        [
-            SyntaxRule(),
-            ImportRule(search_paths=[reference_dir], timeout_seconds=import_timeout_seconds),
-            TargetRule(contracts),
-            AssertionRule(),
-        ]
+    return default_validation_chain(
+        contracts, reference_dir, import_timeout_seconds, runner_timeout_seconds
     )
 
 
