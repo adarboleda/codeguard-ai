@@ -5,20 +5,24 @@ and with a timeout, so its module-level code never runs inside CodeGuard itself
 (proposals may come from an LLM).
 """
 
+import contextlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from codeguard.adapters.execution.integrity import SCIREF_PACKAGE_NAME, verify_sciref_integrity
 from codeguard.domain import RejectionReason, TestProposal, ValidationVerdict
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 _MAX_DETAIL_CHARS = 300
 _SAFE_FILE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.py$")
 _FALLBACK_FILE_NAME = "proposal.py"
+_IGNORED_COPY = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
 
 # Loads the file as a module named "codeguard_proposal" (not "__main__"), so an
 # ``if __name__ == "__main__":`` block in the proposal is not executed.
@@ -53,28 +57,34 @@ class ImportRule:
 
     def check(self, proposal: TestProposal) -> ValidationVerdict | None:
         """Return ``None`` if the module imports in a subprocess, else ``IMPORT_ERROR``."""
-        with tempfile.TemporaryDirectory(prefix="codeguard-import-") as workdir:
-            module_path = Path(workdir) / _file_name(proposal)
-            module_path.write_text(proposal.code, encoding="utf-8")
-            try:
-                result = subprocess.run(
-                    [self._python, "-c", _IMPORT_SCRIPT, str(module_path)],
-                    cwd=workdir,
-                    env=self._child_env(),
-                    capture_output=True,
-                    text=True,
-                    timeout=self._timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired:
-                return self._reject(proposal, f"timeout after {self._timeout_seconds:g} s")
+        with contextlib.ExitStack() as stack:
+            for path in self._search_paths:
+                if (path / SCIREF_PACKAGE_NAME).is_dir():
+                    stack.enter_context(verify_sciref_integrity(path))
+            with tempfile.TemporaryDirectory(prefix="codeguard-import-") as workdir:
+                work_path = Path(workdir)
+                copied_paths = _stage_search_paths(work_path, self._search_paths)
+                module_path = work_path / _file_name(proposal)
+                module_path.write_text(proposal.code, encoding="utf-8")
+                try:
+                    result = subprocess.run(
+                        [self._python, "-c", _IMPORT_SCRIPT, str(module_path)],
+                        cwd=workdir,
+                        env=self._child_env(copied_paths),
+                        capture_output=True,
+                        text=True,
+                        timeout=self._timeout_seconds,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    return self._reject(proposal, f"timeout after {self._timeout_seconds:g} s")
         if result.returncode != 0:
             return self._reject(proposal, _last_error_line(result.stderr))
         return None
 
-    def _child_env(self) -> dict[str, str]:
+    def _child_env(self, search_paths: Sequence[Path]) -> dict[str, str]:
         env = dict(os.environ)
-        paths = [str(path) for path in self._search_paths]
+        paths = [str(path) for path in search_paths]
         if env.get("PYTHONPATH"):
             paths.append(env["PYTHONPATH"])
         env["PYTHONPATH"] = os.pathsep.join(paths)
@@ -90,6 +100,19 @@ class ImportRule:
             detail=detail,
             rule_name=self.name,
         )
+
+
+def _stage_search_paths(workdir: Path, search_paths: Sequence[Path]) -> tuple[Path, ...]:
+    """Copy directory search paths into ``workdir`` so child code cannot touch originals."""
+    staged: list[Path] = []
+    for idx, path in enumerate(search_paths):
+        if path.is_dir():
+            target = workdir / f"search_{idx}"
+            shutil.copytree(path, target, ignore=_IGNORED_COPY)
+            staged.append(target)
+        else:
+            staged.append(path)
+    return tuple(staged)
 
 
 def _file_name(proposal: TestProposal) -> str:

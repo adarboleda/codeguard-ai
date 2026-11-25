@@ -16,6 +16,7 @@ from codeguard.adapters.execution import (
     verify_sciref_integrity,
 )
 from codeguard.adapters.ledger import JsonlLedger
+from codeguard.adapters.validation import ImportRule
 from codeguard.application.run_suite import RunSuite
 from codeguard.cli.main import app
 from codeguard.domain import IntegrityError, ProposalSourceKind, TestProposal, ValidationVerdict
@@ -303,3 +304,160 @@ def test_run_config_records_both_timeouts(tmp_path: Path) -> None:
         "runner_timeout_seconds": 45.0,
         "import_timeout_seconds": 7.0,
     }
+
+
+def test_import_rule_executes_against_temporary_copy_never_original_reference(
+    tmp_path: Path,
+) -> None:
+    ref_copy = _copy_reference(tmp_path)
+    before = compute_sciref_snapshot(ref_copy)
+    proposal = TestProposal(
+        proposal_id="P-IMPORT-WRITE",
+        target_module="sciref.numeric",
+        target_function="clamp",
+        source=ProposalSourceKind.TEMPLATE,
+        code=(
+            "from pathlib import Path\n"
+            "import sciref.numeric\n"
+            "Path(sciref.numeric.__file__).write_text('# hijacked\\n', encoding='utf-8')\n"
+        ),
+        file_name="test_import_write.py",
+    )
+
+    verdict = ImportRule(search_paths=[ref_copy]).check(proposal)
+
+    assert verdict is None
+    assert compute_sciref_snapshot(ref_copy) == before
+
+
+def test_import_rule_aborts_if_sciref_tampered_before_check(tmp_path: Path) -> None:
+    ref_copy = _copy_reference(tmp_path)
+    _tamper_numeric(ref_copy)
+    proposal = TestProposal(
+        proposal_id="P-IMPORT-TAMPER",
+        target_module="sciref.numeric",
+        target_function="clamp",
+        source=ProposalSourceKind.TEMPLATE,
+        code="from sciref.numeric import clamp\n",
+        file_name="test_import_tamper.py",
+    )
+    rule = ImportRule(search_paths=[ref_copy])
+
+    with pytest.raises(IntegrityError, match="before run"):
+        rule.check(proposal)
+
+
+def test_pytest_runner_isolates_test_writing_to_sciref_file(tmp_path: Path) -> None:
+    ref_copy = _copy_reference(tmp_path)
+    before = compute_sciref_snapshot(ref_copy)
+    test_file = tmp_path / "test_write_sciref.py"
+    test_file.write_text(
+        "from pathlib import Path\n"
+        "import sciref.numeric\n\n"
+        "def test_writes_copy() -> None:\n"
+        "    Path(sciref.numeric.__file__).write_text('# hijacked\\n', encoding='utf-8')\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    result = PytestSubprocessRunner().run([test_file], ref_copy, tmp_path / "out")
+
+    assert result.is_green
+    assert compute_sciref_snapshot(ref_copy) == before
+
+
+def test_cli_validate_aborts_with_exit_1_when_sciref_hash_changed(tmp_path: Path) -> None:
+    ref_copy = _copy_reference(tmp_path)
+    out_dir = tmp_path / "out"
+    gen = cli_runner.invoke(
+        app,
+        [
+            "generate",
+            "--specs",
+            str(CONTRACTS_PATH),
+            "--seeds",
+            str(SEEDS_PATH),
+            "--reference-dir",
+            str(ref_copy),
+            "--out",
+            str(out_dir),
+            "--run-id",
+            "tamper-val",
+        ],
+    )
+    assert gen.exit_code == 0, gen.output
+
+    _tamper_numeric(ref_copy)
+
+    res = cli_runner.invoke(
+        app,
+        [
+            "validate",
+            "--run-id",
+            "tamper-val",
+            "--specs",
+            str(CONTRACTS_PATH),
+            "--reference-dir",
+            str(ref_copy),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert res.exit_code == 1
+    assert "sciref integrity check failed" in res.output
+
+
+def test_cli_mutate_aborts_with_exit_1_when_sciref_hash_changed(tmp_path: Path) -> None:
+    ref_copy = _copy_reference(tmp_path)
+    out_dir = tmp_path / "out"
+    gen = cli_runner.invoke(
+        app,
+        [
+            "generate",
+            "--specs",
+            str(CONTRACTS_PATH),
+            "--seeds",
+            str(SEEDS_PATH),
+            "--reference-dir",
+            str(ref_copy),
+            "--out",
+            str(out_dir),
+            "--run-id",
+            "tamper-mut",
+        ],
+    )
+    assert gen.exit_code == 0, gen.output
+    val = cli_runner.invoke(
+        app,
+        [
+            "validate",
+            "--run-id",
+            "tamper-mut",
+            "--specs",
+            str(CONTRACTS_PATH),
+            "--reference-dir",
+            str(ref_copy),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert val.exit_code == 0, val.output
+
+    _tamper_numeric(ref_copy)
+
+    res = cli_runner.invoke(
+        app,
+        [
+            "mutate",
+            "--run-id",
+            "tamper-mut",
+            "--catalog",
+            str(CATALOG_PATH),
+            "--reference-dir",
+            str(ref_copy),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert res.exit_code == 1
+    assert "sciref integrity check failed" in res.output
