@@ -40,8 +40,8 @@ jobs:
       - name: mypy
         run: uv run mypy
 
-      - name: pytest
-        run: uv run pytest
+      - name: pytest (cobertura de src/codeguard >= 80 %, CG-25)
+        run: uv run pytest --cov=codeguard --cov-report=term --cov-fail-under=80
 
   secrets:
     name: gitleaks
