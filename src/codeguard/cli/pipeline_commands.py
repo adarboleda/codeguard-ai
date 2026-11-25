@@ -122,7 +122,7 @@ def report_command(
         typer.Option("--out", "-o", help="Directorio raíz de salidas (out/)."),
     ] = Path("out"),
 ) -> None:
-    """Consolida los artefactos existentes de out/<run_id>/ en summary.json."""
+    """Consolida los artefactos existentes de out/<run_id>/ en summary, results y report.html."""
     try:
         resolved_run_id = _resolve_run_id(run_id)
         summary = build_summary_report(out / resolved_run_id)
@@ -131,8 +131,9 @@ def report_command(
         raise typer.Exit(code=1) from error
 
     typer.echo(
-        f"Resumen generado (run_id={summary.run_id}) en {summary.summary_path} "
-        f"y {summary.summary_path.parent / 'results.json'}"
+        f"Resumen generado (run_id={summary.run_id}) en {summary.summary_path}, "
+        f"{summary.summary_path.parent / 'results.json'} y "
+        f"{summary.summary_path.parent / 'report.html'}"
     )
 
 

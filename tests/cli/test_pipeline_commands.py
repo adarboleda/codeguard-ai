@@ -54,7 +54,13 @@ def test_cli_scan_and_report_commands(tmp_path: Path) -> None:
     assert report_result.exit_code == 0, report_result.output
     summary_path = tmp_path / "scan-only" / "summary.json"
     results_path = tmp_path / "scan-only" / "results.json"
+    report_path = tmp_path / "scan-only" / "report.html"
     assert results_path.is_file()
+    assert report_path.is_file()
+    report_html = report_path.read_text(encoding="utf-8")
+    assert 'id="functional-tests"' in report_html
+    assert 'id="mutation-analysis"' in report_html
+    assert 'id="static-analysis"' in report_html
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["run_id"] == "scan-only"
     assert summary["static_scan"]["total"] == 4
@@ -142,6 +148,7 @@ def test_cli_all_reproduces_full_pipeline_and_writes_run_config(tmp_path: Path) 
         "mutants.json",
         "findings.json",
         "summary.json",
+        "report.html",
     ):
         assert (run_dir / rel).is_file(), f"missing artifact {rel}"
 
