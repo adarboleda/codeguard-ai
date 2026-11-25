@@ -53,6 +53,20 @@ def test_value_derived_from_result_passes(make_proposal: ProposalFactory) -> Non
     assert _check(make_proposal, code) is None
 
 
+def test_side_effect_on_an_argument_passes(make_proposal: ProposalFactory) -> None:
+    """Regression (first real Groq run): checking that the input is not mutated is useful."""
+    code = _test(
+        "values = [1, 3]\ncopy = list(values)\n_ = weighted_mean(values, [1, 3])\n"
+        "assert values == copy"
+    )
+    assert _check(make_proposal, code) is None
+
+
+def test_side_effect_through_a_keyword_argument_passes(make_proposal: ProposalFactory) -> None:
+    code = _test("w = [1, 3]\nweighted_mean([1, 3], weights=w)\nassert w == [1, 3]")
+    assert _check(make_proposal, code) is None
+
+
 def test_pytest_raises_block_with_target_passes(make_proposal: ProposalFactory) -> None:
     code = _test("with pytest.raises(ValueError):\n    weighted_mean([], [])")
     assert _check(make_proposal, code) is None

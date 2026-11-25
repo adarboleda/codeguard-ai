@@ -137,8 +137,13 @@ def _raises_checks(
 def _names_derived_from_target(
     function: ast.FunctionDef | ast.AsyncFunctionDef, resolver: NameResolver
 ) -> set[str]:
-    """Variables that hold a value computed from a call to the target (fixpoint)."""
-    tainted: set[str] = set()
+    """Variables observed through the target (fixpoint).
+
+    A variable counts if it holds a value computed from a call to the target, or if it
+    was passed to the target: asserting on it afterwards checks a side effect, e.g. that
+    ``normalize_minmax(original)`` does not mutate ``original`` (part of the contract).
+    """
+    tainted = _names_passed_to_target(function, resolver)
     assignments = [
         (targets, value)
         for node in ast.walk(function)
@@ -155,6 +160,22 @@ def _names_derived_from_target(
                     tainted |= new_names
                     changed = True
     return tainted
+
+
+def _names_passed_to_target(
+    function: ast.FunctionDef | ast.AsyncFunctionDef, resolver: NameResolver
+) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        arguments = resolver.target_call_arguments(node)
+        if arguments is None:
+            continue
+        args, keywords = arguments
+        for expr in [*args, *(keyword.value for keyword in keywords)]:
+            names.update(child.id for child in ast.walk(expr) if isinstance(child, ast.Name))
+    return names
 
 
 def _assignment(node: ast.AST) -> Iterator[tuple[list[ast.expr], ast.expr | None]]:
