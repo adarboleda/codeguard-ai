@@ -101,3 +101,44 @@ def test_coverage_targets_are_read(tmp_path: Path) -> None:
 def test_invalid_coverage_targets_are_rejected(tmp_path: Path, text: str, message: str) -> None:
     with pytest.raises(ConfigError, match=message):
         load_settings(_config(tmp_path, text))
+
+
+def test_llm_settings_defaults_follow_the_plan(tmp_path: Path) -> None:
+    llm = load_settings(tmp_path / "missing.toml").llm
+
+    assert llm.base_url == "https://api.groq.com/openai/v1"
+    assert (llm.temperature, llm.timeout_seconds, llm.max_retries) == (0.0, 60.0, 2)
+    assert llm.max_tests_per_function == 8
+
+
+def test_repository_llm_settings() -> None:
+    assert load_settings(REPO_CONFIG, required=True).llm == load_settings(Path("missing")).llm
+
+
+def test_llm_settings_are_read(tmp_path: Path) -> None:
+    text = (
+        "[llm]\ntemperature = 0.2\ntimeout_seconds = 30\n"
+        "max_retries = 0\nmax_tests_per_function = 3\n"
+    )
+
+    llm = load_settings(_config(tmp_path, text)).llm
+
+    assert (llm.temperature, llm.timeout_seconds, llm.max_retries) == (0.2, 30.0, 0)
+    assert llm.max_tests_per_function == 3
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('[llm]\nbase_url = "http://insecure"\n', "https:// URL"),
+        ("[llm]\ntemperature = 3\n", "temperature must be a number"),
+        ("[llm]\nmax_retries = 1.5\n", "max_retries must be an integer"),
+        ("[llm]\nmax_tests_per_function = 0\n", "max_tests_per_function must be an integer"),
+        ("[llm]\ntimeout_seconds = true\n", "timeout_seconds must be a number"),
+        ('[llm]\napi_key = "gsk_x"\n', r"unknown keys in \[llm\]: api_key"),
+        ("llm = 1\n", r"\[llm\] must be a table"),
+    ],
+)
+def test_invalid_llm_settings_are_rejected(tmp_path: Path, text: str, message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_settings(_config(tmp_path, text))
