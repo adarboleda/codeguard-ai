@@ -35,6 +35,7 @@ from codeguard.adapters.mutation import (
     load_catalog,
     mutant_workspace,
 )
+from codeguard.adapters.reporting import JinjaHtmlReportRenderer
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.static import scan_paths
 from codeguard.adapters.validation.default_chain import default_validation_chain
@@ -224,6 +225,7 @@ def build_summary_report(run_dir: Path) -> SummaryReport:
     summary_path = run_dir / SUMMARY_FILE_NAME
     _write_json(summary_path, payload)
     ComputeMetrics().execute(run_dir)
+    JinjaHtmlReportRenderer().render_run(run_dir)
     return SummaryReport(
         run_id=run_dir.name,
         summary_path=summary_path,
@@ -299,6 +301,7 @@ class RunPipeline:
             durations["report"] = time.perf_counter() - report_start
             write_run_config(options, run_dir, durations)
             ComputeMetrics().execute(run_dir)
+            JinjaHtmlReportRenderer().render_run(run_dir)
 
         return PipelineResult(
             run_id=options.run_id,

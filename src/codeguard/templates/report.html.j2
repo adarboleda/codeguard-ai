@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeGuard AI — Reporte ({{ run_id }})</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --muted: #656d76;
+      --accent: #0969da;
+      --ok-bg: #dafbe1;
+      --ok-fg: #116329;
+      --bad-bg: #ffebe9;
+      --bad-fg: #cf222e;
+      --warn-bg: #fff8c5;
+      --warn-fg: #9a6700;
+      --neutral-bg: #eaeef2;
+      --neutral-fg: #424a53;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem 1.25rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 1120px; margin: 0 auto; }
+    header, section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    header h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; }
+    h2 {
+      margin: 0 0 1rem 0;
+      font-size: 1.25rem;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0.4rem;
+    }
+    h3 { margin: 1.25rem 0 0.6rem 0; font-size: 1.05rem; color: var(--text); }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 2rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .meta strong { color: var(--text); }
+    nav.toc { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    nav.toc a {
+      text-decoration: none;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 0.25rem 0.6rem;
+      background: #ddf4ff;
+      border-radius: 6px;
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .kpi {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      background: #fbfcfd;
+    }
+    .kpi .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; }
+    .kpi .value { font-size: 1.3rem; font-weight: 700; margin-top: 0.2rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.875rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f3f5f8; font-weight: 600; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      background: #f3f5f8;
+      padding: 0.1rem 0.3rem;
+      border-radius: 4px;
+      word-break: break-word;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .badge-bad { background: var(--bad-bg); color: var(--bad-fg); }
+    .badge-warn { background: var(--warn-bg); color: var(--warn-fg); }
+    .badge-neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
+    .empty { color: var(--muted); font-style: italic; margin: 0.5rem 0; }
+    .timings { margin-top: 0.75rem; font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>CodeGuard AI — Reporte de Corrida</h1>
+      <div class="meta">
+        <span><strong>run_id:</strong> <code>{{ run_id }}</code></span>
+        <span><strong>Generado (UTC):</strong> {{ generated_at_utc }}</span>
+        {% if run_config.available %}
+        <span><strong>Semilla:</strong> {{ run_config.seed }}</span>
+        {% if run_config.sciref_sha256_combined %}
+        <span><strong>SHA-256 sciref:</strong> <code>{{ run_config.sciref_sha256_combined[:16] }}…</code></span>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% if run_config.available and run_config.phase_durations %}
+      <div class="timings">
+        <strong>Tiempos por fase (s):</strong>
+        {% for phase, seconds in run_config.phase_durations.items() %}
+        <span>{{ phase }}={{ "%.3f"|format(seconds) }}s{% if not loop.last %}, {% endif %}</span>
+        {% endfor %}
+        — <strong>total={{ "%.3f"|format(run_config.total_duration) }}s</strong>
+      </div>
+      {% endif %}
+      <nav class="toc">
+        <a href="#functional-tests">1. Pruebas funcionales</a>
+        <a href="#mutation-analysis">2. Mutación</a>
+        <a href="#static-analysis">3. Avisos estáticos</a>
+      </nav>
+    </header>
+
+    <section id="functional-tests">
+      <h2>1. Pruebas funcionales (Ledger, Resultados y Cobertura)</h2>
+
+      <h3>1.1 Ledger de validación</h3>
+      {% if ledger.available %}
+      <div class="kpis">
+        <div class="kpi"><div class="label">Propuestas totales</div><div class="value">{{ ledger.total }}</div></div>
+        <div class="kpi"><div class="label">Válidas</div><div class="value">{{ ledger.valid }}</div></div>
+        <div class="kpi"><div class="label">Rechazadas</div><div class="value">{{ ledger.rejected }}</div></div>
+        <div class="kpi"><div class="label">Tasa de validez</div><div class="value">{{ "%.2f"|format(ledger.validity_pct) }}%</div></div>
+      </div>
+      {% if ledger.by_reason %}
+      <p>
+        <strong>Motivos de rechazo:</strong>
+        {% for reason, count in ledger.by_reason.items() %}
+        <code>{{ reason }}={{ count }}</code>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID propuesta</th>
+            <th>Casos</th>
+            <th>Objetivo</th>
+            <th>Origen</th>
+            <th>Estado</th>
+            <th>Motivo</th>
+            <th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in ledger.entries %}
+          <tr>
+            <td><code>{{ entry.proposal_id }}</code></td>
+            <td>{{ entry.case_ids|join(", ") or "—" }}</td>
+            <td><code>{{ entry.target }}</code></td>
+            <td>{{ entry.source }}</td>
+            <td>
+              {% if entry.status == "valid" %}
+              <span class="badge badge-ok">valid</span>
+              {% else %}
+              <span class="badge badge-bad">rejected</span>
+              {% endif %}
+            </td>
+            <td>{{ entry.reason or "—" }}</td>
+            <td>{{ entry.detail or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No se encontró <code>ledger.jsonl</code> para esta corrida.</p>
+      {% endif %}
+
+      <h3>1.2 Resultados de ejecución (JUnit)</h3>
+      {% if execution.available %}
+      <div class="kpis">
+        <div class="kpi"><div class="label">Ejecutadas</div><div class="value">{{ execution.total }}</div></div>
+        <div class="kpi"><div class="label">Aprobadas</div><div class="value">{{ execution.passed }}</div></div>
+        <div class="kpi"><div class="label">Fallidas</div><div class="value">{{ execution.failed }}</div></div>
+        <div class="kpi"><div class="label">Errores</div><div class="value">{{ execution.errors }}</div></div>
+        <div class="kpi"><div class="label">Omitidas</div><div class="value">{{ execution.skipped }}</div></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Prueba</th>
+            <th>Resultado</th>
+            <th>Duración (s)</th>
+            <th>Mensaje</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for test in execution.tests %}
+          <tr>
+            <td><code>{{ test.node_id }}</code></td>
+            <td>
+              {% if test.outcome == "passed" %}
+              <span class="badge badge-ok">passed</span>
+              {% elif test.outcome == "skipped" %}
+              <span class="badge badge-warn">skipped</span>
+              {% else %}
+              <span class="badge badge-bad">{{ test.outcome }}</span>
+              {% endif %}
+            </td>
+            <td>{{ "%.4f"|format(test.duration_seconds) }}</td>
+            <td>{{ test.message or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No se encontró <code>junit.xml</code> para esta corrida.</p>
+      {% endif %}
+
+      <h3>1.3 Cobertura (sciref)</h3>
+      {% if coverage.available %}
+      <div class="kpis">
+        <div class="kpi"><div class="label">Cobertura de líneas</div><div class="value">{{ "%.2f"|format(coverage.line_pct) }}%</div></div>
+        <div class="kpi"><div class="label">Cobertura de ramas</div><div class="value">{{ "%.2f"|format(coverage.branch_pct) }}%</div></div>
+        {% if coverage.modules %}
+        <div class="kpi"><div class="label">Sentencias</div><div class="value">{{ coverage.covered_lines }} / {{ coverage.statements }}</div></div>
+        <div class="kpi"><div class="label">Ramas</div><div class="value">{{ coverage.covered_branches }} / {{ coverage.branches }}</div></div>
+        {% endif %}
+      </div>
+      {% if coverage.html_index_exists %}
+      <p>Reporte detallado de cobertura: <a href="coverage_html/index.html">coverage_html/index.html</a></p>
+      {% endif %}
+      {% if coverage.modules %}
+      <table>
+        <thead>
+          <tr>
+            <th>Módulo</th>
+            <th>Líneas cubiertas</th>
+            <th>% Líneas</th>
+            <th>Ramas cubiertas</th>
+            <th>% Ramas</th>
+            <th>Líneas faltantes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mod in coverage.modules %}
+          <tr>
+            <td><code>{{ mod.path }}</code></td>
+            <td>{{ mod.covered_lines }} / {{ mod.statements }}</td>
+            <td>{{ "%.2f"|format(mod.line_pct) }}%</td>
+            <td>{{ mod.covered_branches }} / {{ mod.branches }}</td>
+            <td>{{ "%.2f"|format(mod.branch_pct) }}%</td>
+            <td>{{ mod.missing_lines|join(", ") or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% else %}
+      <p class="empty">No se encontró <code>coverage.json</code> para esta corrida.</p>
+      {% endif %}
+    </section>
+
+    <section id="mutation-analysis">
+      <h2>2. Mutación</h2>
+      {% if mutation.available %}
+      <div class="kpis">
+        <div class="kpi"><div class="label">Mutantes totales</div><div class="value">{{ mutation.total }}</div></div>
+        <div class="kpi"><div class="label">Detectados (KILLED)</div><div class="value">{{ mutation.killed }}</div></div>
+        <div class="kpi"><div class="label">Sobrevivientes</div><div class="value">{{ mutation.survived }}</div></div>
+        <div class="kpi"><div class="label">Equivalentes</div><div class="value">{{ mutation.equivalent }}</div></div>
+        <div class="kpi"><div class="label">Inválidos</div><div class="value">{{ mutation.invalid }}</div></div>
+        <div class="kpi"><div class="label">Denominador válido</div><div class="value">{{ mutation.valid_denominator }}</div></div>
+        <div class="kpi"><div class="label">Tasa de mutación</div><div class="value">{{ "%.2f"|format(mutation.mutation_score_pct) }}%</div></div>
+      </div>
+      <p>
+        Denominador explícito: <code>{{ mutation.killed }} / {{ mutation.valid_denominator }}</code>
+        (excluye {{ mutation.equivalent }} equivalente(s) y {{ mutation.invalid }} inválido(s)).
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Mutante</th>
+            <th>Función</th>
+            <th>Estado</th>
+            <th>Exit code</th>
+            <th>Timeout</th>
+            <th>Fallos</th>
+            <th>Duración (s)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in mutation.outcomes %}
+          <tr>
+            <td><code>{{ item.mutant_id }}</code></td>
+            <td><code>{{ item.function }}</code></td>
+            <td>
+              {% if item.status == "KILLED" %}
+              <span class="badge badge-ok">KILLED</span>
+              {% elif item.status == "EQUIVALENT" %}
+              <span class="badge badge-neutral">EQUIVALENT</span>
+              {% elif item.status == "SURVIVED" %}
+              <span class="badge badge-bad">SURVIVED</span>
+              {% else %}
+              <span class="badge badge-warn">{{ item.status }}</span>
+              {% endif %}
+            </td>
+            <td>{{ item.exit_code if item.exit_code is not none else "—" }}</td>
+            <td>{{ "Sí" if item.timed_out else "No" }}</td>
+            <td>{{ item.failed }}</td>
+            <td>{{ "%.3f"|format(item.duration_seconds) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No se encontró <code>mutants.json</code> para esta corrida.</p>
+      {% endif %}
+    </section>
+
+    <section id="static-analysis">
+      <h2>3. Avisos estáticos</h2>
+      {% if static_analysis.available %}
+      <div class="kpis">
+        <div class="kpi"><div class="label">Total de hallazgos</div><div class="value">{{ static_analysis.total }}</div></div>
+        {% for rule_id, count in static_analysis.by_rule.items() %}
+        <div class="kpi"><div class="label">Regla {{ rule_id }}</div><div class="value">{{ count }}</div></div>
+        {% endfor %}
+      </div>
+      {% if static_analysis.findings %}
+      <table>
+        <thead>
+          <tr>
+            <th>Regla</th>
+            <th>Severidad</th>
+            <th>Ubicación</th>
+            <th>Fragmento</th>
+            <th>Mensaje</th>
+            <th>Recomendación</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for finding in static_analysis.findings %}
+          <tr>
+            <td><code>{{ finding.rule_id }}</code></td>
+            <td>
+              {% if finding.severity == "HIGH" %}
+              <span class="badge badge-bad">{{ finding.severity }}</span>
+              {% elif finding.severity == "MEDIUM" %}
+              <span class="badge badge-warn">{{ finding.severity }}</span>
+              {% else %}
+              <span class="badge badge-neutral">{{ finding.severity }}</span>
+              {% endif %}
+            </td>
+            <td><code>{{ finding.file_path }}:{{ finding.line }}:{{ finding.column }}</code></td>
+            <td><code>{{ finding.snippet }}</code></td>
+            <td>{{ finding.message }}</td>
+            <td>{{ finding.recommendation }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">El análisis estático no reportó hallazgos en esta corrida.</p>
+      {% endif %}
+      {% else %}
+      <p class="empty">No se encontró <code>findings.json</code> para esta corrida.</p>
+      {% endif %}
+    </section>
+  </div>
+</body>
+</html>
