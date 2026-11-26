@@ -55,10 +55,10 @@ Una segunda llamada real (`groq-02`) dio 43 propuestas, 41 válidas (95,3 %), 10
 **Qué aprendimos.**
 
 1. **Detectando defectos ganan las plantillas:** 12/12 frente a 10/12 en las dos corridas de Groq. En validez y cobertura son comparables.
-2. **Los mutantes que Groq no detecta son los mismos en ambas corridas: puntos ciegos, no azar.** M02 (omitir la comprobación de peso negativo): Groq usa pesos `[1, -1]`, de suma 0, y el original y el mutante lanzan `ValueError` por otra razón; el caso del oráculo `[-1, 2]` sí la aísla. M11 (el bucle empieza en 0): Groq solo prueba series ascendentes y el mutante solo se delata con una bajada (`[5, 0]`, umbral 3).
+2. **Los mutantes que Groq no detecta son los mismos en ambas corridas: puntos ciegos, no azar.** M02 (omitir la comprobación de peso negativo): Groq usa pesos `[1, -1]`, de suma 0, y el original y el mutante lanzan `ValueError` por otra razón; el caso del oráculo `[-1, 2]` sí la aísla. M11 (el bucle empieza en 0): el mutante solo se delata con una serie cuyo último valor queda por debajo del umbral y cuyo primer valor lo alcanza (`[5, 0]`, umbral 3), y ninguna de las pruebas de Groq, en ninguna de las dos corridas, usa una.
 3. **Hay que verificar al modelo.** En `groq-02` calculó mal dos valores esperados de `threshold_crossings` (`[3]` en lugar de `[2]`); la regla 6 los rechazó con `WRONG_EXPECTATION` y siguen en el denominador.
 4. **Con temperatura 0 el resultado no es repetible:** solo 8 de los 42 archivos de `groq-01` coinciden con los de `groq-02`. Por eso se guardan las respuestas: `--replay` regenera exactamente las mismas 42 pruebas sin clave ni red.
-5. **Coste bajo:** unos 7.500 tokens y 20 s por corrida, frente a los 20.000 estimados al planificar.
+5. **Coste bajo:** unos 7.500 tokens por corrida (6 llamadas), frente a los 20.000 estimados al planificar.
 
 **Decisión (27/11).** `--replay` funciona y las pruebas pasan el validador, así que la extensión se integra, apagada por defecto. No sustituye a las plantillas ni al oráculo: es una segunda fuente de casos, filtrada con las mismas reglas.
 
