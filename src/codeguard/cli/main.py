@@ -31,6 +31,7 @@ from codeguard.application.generate_tests import GenerateTests
 from codeguard.application.list_specs import ListContracts
 from codeguard.application.validate_proposals import ValidateProposals
 from codeguard.application.validation_chain import ValidationChain
+from codeguard.cli.compare_command import compare_command
 from codeguard.cli.llm_source import SourceOption, build_groq_source, count_generation_errors
 from codeguard.cli.pipeline_commands import (
     all_command,
@@ -303,3 +304,4 @@ app.command("mutate")(mutate_command)
 app.command("scan")(scan_command)
 app.command("report")(report_command)
 app.command("all")(all_command)
+app.command("compare")(compare_command)
