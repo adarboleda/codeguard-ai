@@ -23,6 +23,10 @@ class MutantApplyError(CodeGuardError):
     """Raised when a catalog is malformed or a mutant cannot be applied exactly once."""
 
 
+class MutantSiteError(MutantApplyError):
+    """The snippet to mutate is absent or ambiguous: the mutant is invalid, not the package."""
+
+
 @dataclass(frozen=True)
 class MutantSpec:
     """One catalog entry: replace ``original`` by ``mutated`` in the reference package."""
@@ -31,6 +35,7 @@ class MutantSpec:
     function: str
     original: str
     mutated: str
+    equivalent: bool = False
 
 
 def load_catalog(path: Path) -> tuple[MutantSpec, ...]:
@@ -48,6 +53,7 @@ def load_catalog(path: Path) -> tuple[MutantSpec, ...]:
                     function=str(entry["function"]),
                     original=str(entry["original"]),
                     mutated=str(entry["mutated"]),
+                    equivalent=entry.get("status") == "equivalent",
                 )
             )
         except (KeyError, TypeError) as exc:
@@ -88,7 +94,7 @@ def apply_mutant(spec: MutantSpec, package_copy: Path) -> Path:
             occurrences += count
 
     if occurrences != 1:
-        raise MutantApplyError(
+        raise MutantSiteError(
             f"{spec.id}: original snippet found {occurrences} times, expected exactly 1"
         )
 
