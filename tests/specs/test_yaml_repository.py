@@ -366,3 +366,106 @@ functions:
 
     with pytest.raises(SpecError, match=match_pattern):
         YamlSpecRepository(spec_file, search_paths=[search_root]).load()
+
+
+def test_schema_rejects_blank_identifiers_blank_raises_and_negative_rel_tol(tmp_path: Path) -> None:
+    bad_id = _write_yaml(
+        tmp_path,
+        """
+version: 1
+package: "   "
+functions:
+  - name: clamp
+    module: sciref.numeric
+    signature: "clamp(x)"
+    contract: "Clamp"
+    cases:
+      - id: C1
+        kind: normal
+        inputs: {x: 1}
+        expected: 1
+        oracle: "ok"
+""",
+        "blank_pkg.yaml",
+    )
+    with pytest.raises(SpecError, match="must not be empty"):
+        YamlSpecRepository(bad_id, verify_signatures=False).load()
+
+    bad_raises = _write_yaml(
+        tmp_path,
+        """
+version: 1
+package: sciref
+functions:
+  - name: clamp
+    module: numeric
+    signature: "clamp(x)"
+    contract: "Clamp"
+    cases:
+      - id: C1
+        kind: invalido
+        inputs: {x: 1}
+        raises: "  "
+        oracle: "ok"
+""",
+        "blank_raises.yaml",
+    )
+    with pytest.raises(SpecError, match="'raises' must be a non-empty"):
+        YamlSpecRepository(bad_raises, verify_signatures=False).load()
+
+    bad_tol = _write_yaml(
+        tmp_path,
+        """
+version: 1
+package: sciref
+functions:
+  - name: clamp
+    module: numeric
+    signature: "clamp(x)"
+    contract: "Clamp"
+    cases:
+      - id: C1
+        kind: normal
+        inputs: {x: 1}
+        expected: 1
+        rel_tol: -0.1
+        oracle: "ok"
+""",
+        "neg_tol.yaml",
+    )
+    with pytest.raises(SpecError, match="'rel_tol' must be non-negative"):
+        YamlSpecRepository(bad_tol, verify_signatures=False).load()
+
+
+def test_qualified_module_kwonly_and_nonliteral_defaults(tmp_path: Path) -> None:
+    search_root, pkg = _make_fake_pkg(
+        tmp_path,
+        "_SENTINEL = object()\n"
+        "def fn(a: int, *, flag: bool = False, tag: object = _SENTINEL) -> int:\n"
+        "    return a\n",
+        pkg_name="fake_kw_pkg",
+    )
+    spec_file = _write_yaml(
+        tmp_path,
+        f"""
+version: 1
+package: {pkg}
+functions:
+  - name: fn
+    module: {pkg}.mod
+    signature: "fn(a, *, flag=False, tag=_SENTINEL)"
+    contract: "Keyword-only function"
+    cases:
+      - id: K-01
+        kind: normal
+        inputs: {{a: 2}}
+        expected: 2
+        oracle: "returns a"
+""",
+    )
+
+    contracts = YamlSpecRepository(spec_file, search_paths=[search_root]).load()
+    assert contracts[0].module == f"{pkg}.mod"
+
+    no_sig = YamlSpecRepository(spec_file, verify_signatures=False).load()
+    assert len(no_sig) == 1

@@ -1,11 +1,28 @@
 """Tests for ``mutate``, ``scan``, ``report``, ``all``, run_config.json, and Makefile (CG-23)."""
 
 import json
+import re
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+from codeguard.adapters.mutation import MutantSpec
+from codeguard.application.run_pipeline import (
+    MutantOutcome,
+    MutationReport,
+    PipelineOptions,
+    _build_source,
+    _classify_mutant_outcome,
+    _compute_sciref_hashes,
+    _load_equivalent_mutant_ids,
+    run_mutation_stage,
+    run_scan_stage,
+)
 from codeguard.cli.main import app
+from codeguard.cli.pipeline_commands import _coverage_text, _resolve_run_id, _resolve_timeouts
+from codeguard.domain import MutantStatus, ProposalSourceKind
+from codeguard.domain.execution import ExecutedTest, ExecutionOutcome, SuiteResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS_PATH = REPO_ROOT / "specs" / "contracts.yaml"
@@ -235,3 +252,105 @@ def test_makefile_exposes_all_target() -> None:
     content = makefile.read_text(encoding="utf-8")
     assert "all:" in content
     assert "\tuv run codeguard all" in content
+
+
+def test_cli_pipeline_helpers_and_error_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert re.fullmatch(r"\d{8}T\d{6}Z", _resolve_run_id(None))
+    with pytest.raises(ValueError, match="Invalid run_id"):
+        _resolve_run_id("../bad")
+    with pytest.raises(ValueError, match="timeout must be positive"):
+        _resolve_timeouts(None, 0)
+
+    assert _coverage_text(None, None) == "cobertura no disponible"
+    assert _coverage_text(95.0, 90.0) == "cobertura 95.0 % líneas / 90.0 % ramas"
+
+    missing_scan = runner.invoke(
+        app,
+        [
+            "scan",
+            "--run-id",
+            "bad-scan",
+            "--target",
+            str(tmp_path / "missing"),
+            "--out",
+            str(tmp_path),
+        ],
+    )
+    assert missing_scan.exit_code == 1
+    assert "Error de escaneo" in missing_scan.output
+
+    bad_all = runner.invoke(
+        app,
+        ["all", "--run-id", "bad-all", "--out", str(tmp_path), "--timeout", "0"],
+    )
+    assert bad_all.exit_code == 1
+    assert "Error en pipeline" in bad_all.output
+
+    fake_report = MutationReport(
+        outcomes=(
+            MutantOutcome("M01", "clamp", "KILLED", 1, False, 2, 0.4),
+            MutantOutcome("M02", "clamp", "SURVIVED", 0, False, 0, 0.3),
+            MutantOutcome("M03", "clamp", "EQUIVALENT", 0, False, 0, 0.3),
+            MutantOutcome("M04", "clamp", "INVALID", None, True, 0, 1.0),
+        ),
+        output_path=tmp_path / "mutants.json",
+    )
+    assert fake_report.equivalent == 1
+    assert fake_report.invalid == 1
+    assert fake_report.timed_out_count == 1
+    monkeypatch.setattr(
+        "codeguard.cli.pipeline_commands.run_mutation_stage",
+        lambda *_args, **_kwargs: fake_report,
+    )
+    mutate_ok = runner.invoke(
+        app,
+        ["mutate", "--run-id", "mocked", "--out", str(tmp_path)],
+    )
+    assert mutate_ok.exit_code == 0, mutate_ok.output
+    assert "1/4 detectados (1 sobrevivientes, 1 timeouts)" in mutate_ok.output
+
+
+def test_pipeline_stage_guards_and_mutant_classification(tmp_path: Path) -> None:
+    run_dir = tmp_path / "r1"
+    run_dir.mkdir()
+    (run_dir / "ledger.jsonl").write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="reference package not found"):
+        run_mutation_stage(run_dir, CATALOG_PATH, tmp_path / "no-ref", 10.0)
+    with pytest.raises(ValueError, match="at least one scan target"):
+        run_scan_stage(run_dir, ())
+    with pytest.raises(ValueError, match="scan target\\(s\\) not found"):
+        run_scan_stage(run_dir, (tmp_path / "absent",))
+    with pytest.raises(ValueError, match="reference package not found"):
+        _compute_sciref_hashes(tmp_path / "no-ref")
+
+    non_dict_catalog = tmp_path / "bad_catalog.yaml"
+    non_dict_catalog.write_text("- item1\n", encoding="utf-8")
+    assert _load_equivalent_mutant_ids(non_dict_catalog) == frozenset()
+
+    opts = PipelineOptions(
+        run_id="x",
+        specs_path=CONTRACTS_PATH,
+        seeds_path=SEEDS_PATH,
+        include_seeds=False,
+        reference_dir=REFERENCE_DIR,
+        catalog_path=CATALOG_PATH,
+        scan_targets=(SAMPLES_DIR,),
+        out_dir=tmp_path,
+        timeout_seconds=10.0,
+    )
+    assert ProposalSourceKind.TEMPLATE.value in repr(_build_source(opts)) or _build_source(opts)
+
+    spec = MutantSpec("M99", "clamp", "a", "b")
+    timed_out = SuiteResult(tests=(), exit_code=None, duration_seconds=1.0, timed_out=True)
+    green = SuiteResult(
+        tests=(ExecutedTest("t.py::test_1", "t.py", ExecutionOutcome.PASSED, 0.1),),
+        exit_code=0,
+        duration_seconds=0.1,
+    )
+    assert (
+        _classify_mutant_outcome(spec, timed_out, frozenset()).status == MutantStatus.INVALID.value
+    )
+    assert _classify_mutant_outcome(spec, green, frozenset()).status == MutantStatus.SURVIVED.value

@@ -283,3 +283,46 @@ def test_cli_report_command_generates_report_html(tmp_path: Path) -> None:
     assert 'id="functional-tests"' in html
     assert 'id="mutation-analysis"' in html
     assert 'id="static-analysis"' in html
+
+
+def test_render_simplified_coverage_empty_findings_and_malformed_json(tmp_path: Path) -> None:
+    run_dir = tmp_path / "edge-run"
+    run_dir.mkdir()
+    _write_json(run_dir / "run_config.json", ["not-a-dict"])
+    _write_json(run_dir / "coverage.json", {"line_coverage_pct": 85.0, "branch_coverage_pct": 70.0})
+    _write_json(
+        run_dir / "mutants.json",
+        [
+            {"mutant_id": "M1", "function": "f", "status": "TIMEOUT", "duration_seconds": True},
+            {"mutant_id": "M2", "function": "f", "status": "KILLED", "duration_seconds": 0.5},
+        ],
+    )
+    _write_json(run_dir / "findings.json", [])
+
+    html = JinjaHtmlReportRenderer().render_run(run_dir).report_path.read_text(encoding="utf-8")
+
+    assert "85.00%" in html
+    assert "70.00%" in html
+    assert "1 / 1" in html
+    assert "no reportó hallazgos" in html
+
+    bad_dir = tmp_path / "malformed-run"
+    bad_dir.mkdir()
+    (bad_dir / "run_config.json").write_text("{bad-json", encoding="utf-8")
+    (bad_dir / "coverage.json").write_text('{"other": 1}', encoding="utf-8")
+    _write_json(bad_dir / "mutants.json", {"not": "a-list"})
+    _write_json(bad_dir / "findings.json", {"not": "a-list"})
+    _write_json(bad_dir / "run_config_extra.json", [])
+
+    bad_html = JinjaHtmlReportRenderer().render_run(bad_dir).report_path.read_text(encoding="utf-8")
+    assert "No se encontró <code>coverage.json</code>" in bad_html
+    assert "No se encontró <code>mutants.json</code>" in bad_html
+    assert "No se encontró <code>findings.json</code>" in bad_html
+
+    non_dict_cov = tmp_path / "nondict-cov"
+    non_dict_cov.mkdir()
+    _write_json(non_dict_cov / "coverage.json", ["not-dict"])
+    cov_html = (
+        JinjaHtmlReportRenderer().render_run(non_dict_cov).report_path.read_text(encoding="utf-8")
+    )
+    assert "No se encontró <code>coverage.json</code>" in cov_html

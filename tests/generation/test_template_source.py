@@ -12,6 +12,7 @@ from codeguard.adapters.generation import (
     FileProposalWriter,
     TemplateProposalSource,
 )
+from codeguard.adapters.generation.template_source import _slugify
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.validation import AssertionRule, ImportRule, SyntaxRule, TargetRule
 from codeguard.application.validation_chain import ValidationChain
@@ -217,3 +218,8 @@ def test_custom_templates_dir_is_supported(tmp_path: Path) -> None:
     proposals = TemplateProposalSource(templates_dir=tmp_path).generate([contract])
 
     assert proposals[0].code == "def test_clamp_cl_01() -> None:\n    assert True\n"
+
+
+def test_slugify_rejects_symbol_only_case_id() -> None:
+    with pytest.raises(ValueError, match="valid identifier slug"):
+        _slugify("!!!")
