@@ -178,3 +178,22 @@ def test_writer_accepts_an_existing_empty_proposals_dir(tmp_path: Path) -> None:
     written = FileProposalWriter().write([_single_proposal()], proposals_dir)
 
     assert [path.name for path in written] == ["test_clamp_cl_01.py"]
+
+
+def test_reader_wraps_os_error_when_reading_proposal_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposals_dir = tmp_path / "proposals"
+    FileProposalWriter().write([_single_proposal()], proposals_dir)
+    real_read_text = Path.read_text
+
+    def _fail_on_py(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        if self.suffix == ".py":
+            raise OSError("permission denied")
+        return real_read_text(self, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", _fail_on_py)
+    reader = FileProposalReader()
+
+    with pytest.raises(ValueError, match="Failed to read proposal file"):
+        reader.read(proposals_dir)

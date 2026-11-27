@@ -10,6 +10,8 @@ from codeguard.application.compute_metrics import (
     COVERAGE_FILE_NAME,
     RESULTS_FILE_NAME,
     ComputeMetrics,
+    _clamp_pct,
+    _non_negative_float,
 )
 from codeguard.domain import ProposalSourceKind, RejectionReason
 from codeguard.domain.ledger import LedgerEntry, ProposalStatus
@@ -168,3 +170,68 @@ def test_compute_metrics_rejects_missing_run_dir(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="run directory not found"):
         ComputeMetrics().execute(missing_dir)
+
+
+def test_compute_metrics_handles_malformed_artifacts_and_fallback_totals(tmp_path: Path) -> None:
+    run_dir = tmp_path / "edge-metrics"
+    run_dir.mkdir()
+    (run_dir / COVERAGE_FILE_NAME).write_text(
+        json.dumps(
+            {
+                "totals": {
+                    "num_statements": 0,
+                    "percent_covered": 75.5,
+                    "num_branches": 0,
+                    "branch_coverage_pct": 50.25,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "mutants.json").write_text(
+        json.dumps(["skip-non-dict", {"mutant_id": "M01", "status": "KILLED"}]),
+        encoding="utf-8",
+    )
+    (run_dir / "run_config.json").write_text(
+        json.dumps(
+            {
+                "phase_durations_seconds": {
+                    "generate": 0.4,
+                    "bad_bool": True,
+                    "bad_neg": -1.0,
+                    "": 1.0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = ComputeMetrics().execute(run_dir)
+    assert report.metrics.line_coverage_pct == pytest.approx(75.5)
+    assert report.metrics.branch_coverage_pct == pytest.approx(50.25)
+    assert report.metrics.mutants_total == 1
+    assert report.metrics.phase_durations_seconds == {"generate": 0.4}
+
+    bad_dir = tmp_path / "bad-shapes"
+    bad_dir.mkdir()
+    (bad_dir / COVERAGE_FILE_NAME).write_text("[]", encoding="utf-8")
+    (bad_dir / "mutants.json").write_text("{}", encoding="utf-8")
+    (bad_dir / "run_config.json").write_text("[]", encoding="utf-8")
+
+    bad_report = ComputeMetrics().execute(bad_dir)
+    assert bad_report.metrics.line_coverage_pct == 0.0
+    assert bad_report.metrics.mutants_total == 0
+    assert bad_report.metrics.phase_durations_seconds == {}
+
+    cfg_bad_durations = tmp_path / "bad-dur"
+    cfg_bad_durations.mkdir()
+    (cfg_bad_durations / "run_config.json").write_text(
+        json.dumps({"phase_durations_seconds": []}),
+        encoding="utf-8",
+    )
+    assert ComputeMetrics().execute(cfg_bad_durations).metrics.phase_durations_seconds == {}
+
+    assert _non_negative_float(True) == 0.0
+    assert _non_negative_float(-5) == 0.0
+    assert _clamp_pct("bad") == 0.0
+    assert _clamp_pct(150.0) == 100.0
