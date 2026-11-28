@@ -36,6 +36,7 @@ from codeguard.adapters.mutation import (
     mutant_workspace,
 )
 from codeguard.adapters.reporting import JinjaHtmlReportRenderer
+from codeguard.adapters.reporting.csv_export import export_run_csv
 from codeguard.adapters.specs import YamlSpecRepository
 from codeguard.adapters.static import scan_paths
 from codeguard.adapters.validation.default_chain import default_validation_chain
@@ -301,6 +302,7 @@ class RunPipeline:
             durations["report"] = time.perf_counter() - report_start
             write_run_config(options, run_dir, durations)
             ComputeMetrics().execute(run_dir)
+            export_run_csv(run_dir)
             JinjaHtmlReportRenderer().render_run(run_dir)
 
         return PipelineResult(
